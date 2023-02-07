@@ -1,7 +1,22 @@
 import math
 import numpy as np
+import time
+import h5py
+
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 
 def write_trim(filename=None,cols=324,rows=324,value=15):
+    '''
+    This function generates a calibration file for PIMMS2 either using a text file
+    or through manual generation. If no filename is specified the entire calibration
+    will default to the specified value (15) unless another is specified.
+
+    How the calibration works:\n
+    -Initially all pixels are set to the maximum allowed voltage (15) and the threshold
+    (vThP-vThN) is scanned from -100mV to 200mV to uniformly observe absolutely no 
+    intensity to the maximum allowed voltage on every pixel.
+    '''
     if filename == None:
         arr =  np.full((cols, rows),value, dtype='>i')
     else:
@@ -28,14 +43,30 @@ def write_trim(filename=None,cols=324,rows=324,value=15):
                 v = 2**(7-r)
                 file_arr[q] += (ba[arr[c,a]][b] * v)
                 i += 1
-    print(file_arr[:45])
-    #with open(f'{fd}\\045.bin','wb') as opf:
-    #    opf.write(file_arr)
+    return file_arr
 
-def open_trim():
-    data = np.fromfile(f'{fd}\\045.bin',dtype=np.uint8)
-    print(data)
-    print(len(data)*8)
+def read_trim():
+    '''
+    This function reads a binary calibration file for PIMMS2 made using labview.
+    '''
+    file_arr = np.fromfile(f'{fd}\\045.bin',dtype=np.uint8)
+    return file_arr
 
-fd = r'C:\Users\mb\Downloads\045.txt'
-write_trim(value=5)
+fd = r'Q:\Cameras\PIMMS'
+
+string = '2331 4031 4146 460D'
+#print([int(x,16) for x in string.split()])
+hi = 26
+lo = 255
+res = hi << 8 | lo
+
+import ctypes
+
+a = bytes.fromhex('23 31 40 30 30 30 30 0D')
+b = a.decode('latin-1')
+data_in_ba = bytearray()
+data_in_ba.extend(map(ord, b))
+#print(a, str(a), data_in_ba)
+
+h = ctypes.c_uint8(int('0x82',16))
+print(h)

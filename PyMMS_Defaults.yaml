@@ -1,27 +1,3 @@
-HardwareInitialization:
-    # <Description> = <ConfigurationString(Hex)>, <ResponseByteCount(Dec)>, <WaitStateAfter(Dec)(ms)>
-    GlobalInitialize : [23 FF E3 0D, 0, 100]
-    StopSM_PatternFPGA : [23 31 40 30 30 30 30 0D, 7]
-    StopSM_ReadOutFPGA : [23 30 40 30 30 30 30 0D, 7]
-    SetAnalogSamplePoint : [23 30 40 30 31 30 41 0D, 7]
-    SetDigitalSamplePoint : [23 30 40 30 43 31 53 0D, 7]
-    InitStandardMode_ADC-Modul : [23 60 41 30 44 30 30 0D, 3]
-    DisableMemoryTransfer : [23 30 40 30 44 30 30 0D, 7]
-    # One of the two following options should be chosen:
-    #    1) The next line configures the Video FPGA to start up with PImMS1-style data 
-    # conversion (inversion, bit reordering and Gray code-to-binary conversion)
-    #StartSM_ReadOutFPGA : 23 30 40 30 30 34 37 0D, 7
-    #    2) The next line configures the Video FPGA to start up with raw readout 
-    # i.e. no changes to the data read from the sensor
-    StartSM_ReadOutFPGA_Raw : [23 30 40 30 30 34 46 0D, 7]
-    ResetMemCtrl_VideoFPGA : [23 30 40 31 30 30 31 0D, 7]
-    # Specify the number of images to transmit via USB (actually 1)
-    SetVideoFPGAImageCntLSB : [23 30 40 31 31 30 31 0D, 7]
-    SetVideoFPGAImageCntMSB : [23 30 40 31 32 30 30 0D, 7]
-    SetVideoFPGAtoBufferingMode : [23 30 40 31 30 30 36 0D, 7]
-    ResetAllUsbFifo : [02 84 0D, 3]
-    ResetUsbController : [02 00 0D, 0, 100]
-
 dac_settings:
     #32 Positive Reference Voltages
     #1 Entry per Channel in a fixed order Channel 1 to Channel 32
@@ -67,3 +43,96 @@ dac_settings:
     reserved_30 : 0
     reserved_31 : 0
     reserved_32 : 0
+
+HardwareInitialization:
+    # <Description> = <ConfigurationString(Hex)>, <ResponseByteCount(Dec)>, <WaitStateAfter(Dec)(ms)>
+    #GlobalInitialize : [23 FF E3 0D, 0, 100] #This throws an error in python but not in labview?
+    StopSM_PatternFPGA : [23 31 40 30 30 30 30 0D, 7]
+    StopSM_ReadOutFPGA : [23 30 40 30 30 30 30 0D, 7]
+    SetAnalogSamplePoint : [23 30 40 30 31 30 41 0D, 7]
+    SetDigitalSamplePoint : [23 30 40 30 43 31 53 0D, 7]
+    InitStandardMode_ADC-Modul : [23 60 41 30 44 30 30 0D, 3]
+    DisableMemoryTransfer : [23 30 40 30 44 30 30 0D, 7]
+    # One of the two following options should be chosen:
+    #    1) The next line configures the Video FPGA to start up with PImMS1-style data 
+    # conversion (inversion, bit reordering and Gray code-to-binary conversion)
+    #StartSM_ReadOutFPGA : 23 30 40 30 30 34 37 0D, 7
+    #    2) The next line configures the Video FPGA to start up with raw readout 
+    # i.e. no changes to the data read from the sensor
+    StartSM_ReadOutFPGA_Raw : [23 30 40 30 30 34 46 0D, 7]
+    ResetMemCtrl_VideoFPGA : [23 30 40 31 30 30 31 0D, 7]
+    # Specify the number of images to transmit via USB (actually 1)
+    SetVideoFPGAImageCntLSB : [23 30 40 31 31 30 31 0D, 7]
+    SetVideoFPGAImageCntMSB : [23 30 40 31 32 30 30 0D, 7]
+    SetVideoFPGAtoBufferingMode : [23 30 40 31 30 30 36 0D, 7]
+    ResetAllUsbFifo : [02 84 0D, 3]
+    ResetUsbController : [02 00 0D, 0, 100]
+
+SubRoutines: 
+    #
+    # <SubRoutineName> = <SubRoutineAddress>, <RegisterNumberNextSubRoutine>
+    # This has been changed from the .ini file to use the integer values rather than hex
+    #
+    Analogue Readout : [1, 18]      #0
+    Clear Pixel Memory : [8, 21]    #1
+    Digital Readout : [2, 19]       #2
+    Experimental Period : [4, 20]   #3
+    Experimental Setup : [16, 22]   #4
+    Power Up : [128, 25]            #5
+    Row Counter Setup : [64, 24]    #6
+    Trim Setup : [32, 23]           #7
+    Calibrate : [255, 27]           #8
+    Stop : [0,None]                 #9
+
+OperationModes:
+    #
+    # <OperationModeName> = <1stSubRoutine>, <2ndSubRoutine>, ...
+    #
+    Start Up : [5, 6, 7, 9]
+    Setup : [0, 0]
+    Experimental : [7, 1, 4, 3, 2, 1]
+    Experimental w. Analogue Readout : [1, 4, 3, 0, 2, 1]
+    Calibration Setup : [7, 1, 4, 3, 2, 1]
+    Programme PImMS2 Bias DACs : [8,9]
+
+ControlSettings:
+    #Hardware description : Value, FPGA Register No. List
+    #Some values are split into Hi and Lo bits for the camera
+    Cycles Per Time Code : [7, [13]]
+    Total Columns : [324, [10, 9]]
+    Total Rows : [324, [4,3]]
+    Rows In Frame : [324, [2,1]]
+    Columns Per Analogue Output : [81,[8,7]]
+    First Row : [0,[17,16]]
+    Delay Rows : [0,[6,5]]
+    Time Code End : [4095,[12,11]]
+    Experimental Sync Flag Delay : [0,[15,14]]
+    Array Digital Clock Divider : [0, [30]]
+    vPreAmpCascN_DAC : [212,[37]]
+    vShaperCascN_DAC : [212,[38]]
+    iTestPix_DAC : [0,[39]]
+    iAnaCol_DAC : [0,[40]]
+    iSenseCol_DAC : [0,[41]]
+    iCompTrimMSB_DAC : [0,[42]]
+    iCompTrimLSB_DAC: [0,[43]]
+    iCompPSF_DAC : [0,[44]]
+    iCompP_DAC : [0,[45]]
+    iShaper_DAC : [0,[46]]
+    iPreAmp_DAC : [0,[47]]
+    vAmpCascN_DAC : [0,[48]]
+    vAmpBias_DAC : [0,[49]]
+    vAmpCascP_DAC : [0,[50]]
+    iSenseComp_DAC : [0,[51]]
+    iColSF_DAC : [0,[52]]
+    iSenseInput_DAC : [0,[53]]
+    iAmpOutput_DAC : [0,[54]]
+    iAmpInput_DAC : [0,[55]]
+    iOutMux_DAC : [0,[56]]
+    Mem Reg Read : [4,[83]]
+    CPM Ini Value : [0,[35,34]]
+    First Timecode : [1,[112,111]]
+    Comparator Sample Time : [40,[116]]
+    Diode Reset Release Time : [40,[115,117]]
+    Pixel Settling Time : [479,[119,118]]
+    Initial Delay in Experimental : [255,[73]]
+    Time Code Phase Shift : [3,[74]]
