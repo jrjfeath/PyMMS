@@ -3,6 +3,7 @@ import os
 import math
 import sys
 import numpy as np
+import time
 #Important notes about ctypes 
 #Pointers are made using: ptr = ctypes.c_void_p()
 #When you want to pass a pointer to a C function use ctypes.byref(ptr) in the function call
@@ -76,52 +77,12 @@ class pymms():
             print('Cannot disconnect from camera, check USB connection!')
             self.error_encountered()
 
-    def write_device(self, data, timeout=1000):
-        '''
-        Write data to the PIMMS camera.
-        Format:  Data in [string], Timeout(ms) [int]
-        '''
-        w_cam = self.pimms.serialWrite
-
-        data_in_ba = bytearray()
-        data_in_ba.extend(map(ord, str(data)))
-        char_array = ctypes.c_char * len(data_in_ba)
-        bytestowrite = ctypes.c_int32(ctypes.sizeof(char_array))
-        timeout = ctypes.c_int32(timeout)
-
-        w_cam.restype = ctypes.c_int
-        w_cam.argtypes = [ctypes.c_void_p, 
-                          ctypes.POINTER(ctypes.c_int32), 
-                          ctypes.POINTER(ctypes.c_char * ctypes.sizeof(char_array)), 
-                          ctypes.c_int32] 
-
-        ret = w_cam(self.camera_id, ctypes.byref(bytestowrite), char_array.from_buffer(data_in_ba), timeout)
-        return ret
-
-    def read_device(self,bytestoread,timeout=1000):
-        '''
-        Write data to the PIMMS camera.
-        Format: byte size [int], Timeout(ms) [int]
-        '''
-        r_cam = self.pimms.serialRead
-        r_cam.restype = ctypes.c_int
-        r_cam.argtypes = [ctypes.c_void_p, 
-                          ctypes.POINTER(ctypes.c_int32), 
-                          ctypes.POINTER(ctypes.c_char * bytestoread), 
-                          ctypes.c_int32] 
-
-        data_out = ctypes.create_string_buffer(bytestoread)
-        bytestoread = ctypes.c_int32(ctypes.sizeof(data_out))
-        timeout = ctypes.c_int32(timeout)
-        
-        ret = r_cam(self.camera_id, ctypes.byref(bytestoread), data_out, timeout)
-        return ret, data_out.raw
-
     def writeread_device(self,data,bytestoread,timeout=1000):
         '''
         Write data to the PIMMS camera.
         Format: data [string], byte size [int], Timeout(ms) [int]
         '''
+
         wr_cam = self.pimms.serialWriteRead
 
         data_in_ba = bytearray()
@@ -150,9 +111,28 @@ class pymms():
 
         return ret, data_out.raw
 
-    def setTimeOut(self):
+    def setAltSetting(self,altv=0):
         '''
-        Set camera timeout for taking images. Values are always the same except for ID.
+        Writing trim data requires the camera to be set to alt = 1.
+        '''
+
+        alt = self.pimms.setAltSetting
+        alt.restype = ctypes.c_int
+        alt.argtypes = [ctypes.c_void_p, 
+                        ctypes.c_uint8]
+
+        value = ctypes.c_uint8(altv)
+
+        ret = alt(self.camera_id, value)
+        if ret != 0:
+            print('Could not change camera register')
+            self.error_encountered()
+
+    def setTimeOut(self,eps='0x82'):
+        '''
+        Set camera timeout for taking images. 
+        
+        EPS is changed when writing trim and taking images.
         '''
 
         sto = self.pimms.setTimeOut
@@ -161,16 +141,115 @@ class pymms():
                         ctypes.c_uint8,
                         ctypes.c_int32]
 
-        ep = ctypes.c_uint8(int('0x82',16))
+        ep = ctypes.c_uint8(int(eps,16))
         timeout = ctypes.c_int32(5000)
 
-        ret = sto(self.camera_id,
-                  ep,
-                  timeout)
+        ret = sto(self.camera_id, ep, timeout)
 
-        return ret
+        if ret != 0:
+            print('Could not set camera timeout for trim data')
+            self.error_encountered()
+
+    def write_trim_device(self,trim,eps='0x2'):
+        '''
+        Write trim data to the PIMMS camera. Used for writing trim data.
+        Format:  trim data [array]
+        '''
+
+        w_cam = self.pimms.writeData
+
+        ep = ctypes.c_uint8(int(eps,16))
+        arr = ctypes.c_uint8 * trim.size #Make an empty array
+        bytestowrite = ctypes.c_int32(ctypes.sizeof(arr)) #get size of array
+
+        w_cam.restype = ctypes.c_int
+        w_cam.argtypes = [ctypes.c_void_p,
+                          ctypes.c_uint8,
+                          ctypes.POINTER(ctypes.c_int32),
+                          ctypes.POINTER(ctypes.c_uint8 * ctypes.sizeof(arr))]
+
+        ret = w_cam(self.camera_id, ep, ctypes.byref(bytestowrite), arr.from_buffer(trim))
+
+        if ret != 0:
+            print('Could not send camera trim data')
+            self.error_encountered()
+
+    def readImage(self,size=5):
+        '''
+        Read image array off camera. Array is columns wide by number of outputs
+        multiplied by the number of rows. i.e 324*324 experimental (4) would be
+        (324,1296).
+        '''
+
+        arrayType = ((ctypes.c_uint16 * 324) * (324 * size))
+        array = arrayType()
+        buffer = ctypes.c_int32(ctypes.sizeof(array))
+
+        rda = self.pimms.readDataAsync
+        rda.restype = ctypes.c_int
+        rda.argtypes = [ctypes.c_void_p, 
+                        ctypes.POINTER(ctypes.c_int32), 
+                        ctypes.POINTER(arrayType)]
+        
+        ret = rda(self.camera_id,
+                  ctypes.byref(buffer),
+                  array)
+
+        if ret != 0:
+            print('Could not get image data')
+            self.error_encountered()
+
+        #Get the images as a numpy array and then reshape
+        img = np.ctypeslib.as_array(array)
+        img = img.reshape(size,324,324)
+
+        return img
 
     #End of dll functions and beginning of trim/calibration functions.
+
+    def writeread_str(self,hex_list):
+        '''
+        Function takes a list and writes data to camera.
+        '''
+        for hexs in hex_list:
+            ret, dat = self.writeread_device(hexs,len(hexs))
+            print(f'Sent: {hexs[:-1]}, Returned: {dat}')
+            if ret != 0:
+                print(f'Could not write settings, have you changed a value?')
+                self.error_encountered()
+
+    def send_trim_to_pimms(self,trim):
+        '''
+        Sends trim data to camera.
+        '''
+        #Write the stop command to PIMMS
+        self.writeread_str(['#1@0000\r'])
+
+        #Wait 10ms before going to next step
+        time.sleep(0.01)
+
+        #Change the camera to setting 1
+        self.setAltSetting(altv=1)
+
+        #Tell camera that we are sending it trim data
+        self.writeread_str(['#0@0D01\r','#1@0002\r'])
+
+        #Set timeout for reading the trim file
+        self.setTimeOut(eps='0x2')
+        
+        #Send trim data to camera.
+        self.write_trim_device(trim)
+        
+        #Tell camera to stop expecting trim data
+        self.writeread_str(['#1@0000\r','#0@0D00\r'])
+
+        time.sleep(0.1)
+
+        #Change the camera to setting 0
+        self.setAltSetting(altv=0)
+
+        #Write stop header at end
+        self.writeread_str(['#1@0001\r'])
 
     def operation_modes(self,settings):
         operation_hex = {}
@@ -186,6 +265,22 @@ class pymms():
         settings['operation_hex'] = operation_hex
         return settings
 
+    def send_operation(self,hex_str,MemReg=4,UpdateReg=False):
+        '''
+        Send various operation modes as defined in defaults file.
+        '''
+        #If the user wants to change the number of memory registers for the camera
+        if UpdateReg == True:
+            res = (83 << 8) | MemReg
+            hex_str.append(f'#1@{hex(res)[2:].zfill(4)}\r')
+
+        for hexs in hex_str:
+            ret, dat = self.writeread_device(hexs,len(hexs))
+            print(f'Sent: {hexs[:-1]}, Returned: {dat}')
+            if ret != 0:
+                print(f'Could not write settings, have you changed a value?')
+                self.error_encountered()
+
     def hardware_settings(self,settings):
         #Obtain the hardware settings for the PIMMS (hex -> binary), decode("latin-1") for str
         for name, details in settings['HardwareInitialization'].items():
@@ -198,10 +293,15 @@ class pymms():
             if ret != 0:
                 print(f'Could not write {name}, have you changed the value?')
                 self.error_encountered()
+
         #Program dac settings
         self.dac_settings(settings)
+
         #Program control settings
         self.program_bias_dacs(settings)
+
+        #Write stop header at end
+        self.writeread_str(['#1@0001\r'])
 
     def dac_settings(self,settings):
         '''
@@ -209,11 +309,7 @@ class pymms():
         Called whenever vThN & vThP are changed
         '''
         dac_hex = '#PC'+''.join([format(x,'X').zfill(4) for x in settings['dac_settings'].values()])+'\r'
-        ret, dat = self.writeread_device(dac_hex,len(dac_hex))
-        print(f'Setting: DAC, Sent: {dac_hex[:-1]}, Returned: {dat}')
-        if ret != 0:
-            print(f'Could not write DAC settings, have you changed a value?')
-            self.error_encountered()
+        self.writeread_str([dac_hex])
 
     def program_bias_dacs(self,settings):
         '''
@@ -232,13 +328,7 @@ class pymms():
                 lo = (reg[1] << 8) | r
                 hex_str.append(f'#1@{hex(hi)[2:].zfill(4)}\r')
                 hex_str.append(f'#1@{hex(lo)[2:].zfill(4)}\r')
-        hex_str.append('#1@0001\r')
-        for hexs in hex_str:
-            ret, dat = self.writeread_device(hexs,len(hexs))
-            print(f'Setting: DAC, Sent: {hexs[:-1]}, Returned: {dat}')
-            if ret != 0:
-                print(f'Could not write DAC settings, have you changed a value?')
-                self.error_encountered()
+        self.writeread_str(hex_str)
 
     def calibration(self):
         '''

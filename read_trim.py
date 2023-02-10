@@ -2,6 +2,8 @@ import math
 import numpy as np
 import time
 import h5py
+import sys
+import ctypes
 
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
@@ -52,21 +54,8 @@ def read_trim():
     file_arr = np.fromfile(f'{fd}\\045.bin',dtype=np.uint8)
     return file_arr
 
-fd = r'Q:\Cameras\PIMMS'
+fd = r'C:\Users\mb\Documents\GitHub\PyMMS'
 
-string = '2331 4031 4146 460D'
-#print([int(x,16) for x in string.split()])
-hi = 26
-lo = 255
-res = hi << 8 | lo
+file_arr = np.fromfile(r'C:\Users\mb\Downloads\045_10.bin',dtype=np.uint8)
 
-import ctypes
-
-a = bytes.fromhex('23 31 40 30 30 30 30 0D')
-b = a.decode('latin-1')
-data_in_ba = bytearray()
-data_in_ba.extend(map(ord, b))
-#print(a, str(a), data_in_ba)
-
-h = ctypes.c_uint8(int('0x82',16))
-print(h)
+a = np.zeros((5,25))
