@@ -17,15 +17,13 @@ fd = os.path.dirname(__file__)
 #Directory containing dlls needed to run the camera
 os.add_dll_directory(fd)
 
-class pymms():
+class idflexusb():
     '''
     Controls interactions with the 64bit idFLEX_USB shared library (.dll)
     
     Functions should not be altered unless instructions have been given by aSpect.
     
     If camera id is required call func.camera_id
-
-    Functions controlling calibration and trim files are also found here.
     '''
 
     def __init__(self) -> None:
@@ -62,6 +60,7 @@ class pymms():
         if ret != 0:
             print('Cannot connect to camera, check USB connection!')
             self.error_encountered()
+        time.sleep(0.5)
 
     def close_device(self):
         '''
@@ -205,51 +204,27 @@ class pymms():
 
         return img
 
-    #End of dll functions and beginning of trim/calibration functions.
+class pymms():
+    '''
+    Object for communicating with PIMMS camera.
 
-    def writeread_str(self,hex_list):
+    Functions parse data to be passed along to idflexusb dll.
+    '''
+
+    def __init__(self) -> None:
+        self.idflex = idflexusb()
+
+    def writeread_str(self,hex_list,name='settings'):
         '''
         Function takes a list and writes data to camera.
         '''
         for hexs in hex_list:
-            ret, dat = self.writeread_device(hexs,len(hexs))
-            print(f'Sent: {hexs[:-1]}, Returned: {dat}')
+            ret, dat = self.idflex.writeread_device(hexs,len(hexs))
+            print(f'{ret}, Sent: {hexs[:-1]}, Returned: {dat}')
             if ret != 0:
-                print(f'Could not write settings, have you changed a value?')
-                self.error_encountered()
-
-    def send_trim_to_pimms(self,trim):
-        '''
-        Sends trim data to camera.
-        '''
-        #Write the stop command to PIMMS
-        self.writeread_str(['#1@0000\r'])
-
-        #Wait 10ms before going to next step
-        time.sleep(0.01)
-
-        #Change the camera to setting 1
-        self.setAltSetting(altv=1)
-
-        #Tell camera that we are sending it trim data
-        self.writeread_str(['#0@0D01\r','#1@0002\r'])
-
-        #Set timeout for reading the trim file
-        self.setTimeOut(eps='0x2')
-        
-        #Send trim data to camera.
-        self.write_trim_device(trim)
-        
-        #Tell camera to stop expecting trim data
-        self.writeread_str(['#1@0000\r','#0@0D00\r'])
-
-        time.sleep(0.1)
-
-        #Change the camera to setting 0
-        self.setAltSetting(altv=0)
-
-        #Write stop header at end
-        self.writeread_str(['#1@0001\r'])
+                print(f'Could not write {name}, have you changed a value?')
+                self.idflex.error_encountered()
+            time.sleep(0.01) #Wait 10ms between each send
 
     def operation_modes(self,settings):
         operation_hex = {}
@@ -274,34 +249,7 @@ class pymms():
             res = (83 << 8) | MemReg
             hex_str.append(f'#1@{hex(res)[2:].zfill(4)}\r')
 
-        for hexs in hex_str:
-            ret, dat = self.writeread_device(hexs,len(hexs))
-            print(f'Sent: {hexs[:-1]}, Returned: {dat}')
-            if ret != 0:
-                print(f'Could not write settings, have you changed a value?')
-                self.error_encountered()
-
-    def hardware_settings(self,settings):
-        #Obtain the hardware settings for the PIMMS (hex -> binary), decode("latin-1") for str
-        for name, details in settings['HardwareInitialization'].items():
-            byte = (bytes.fromhex(details[0])).decode('latin-1')
-            if len(details) == 2:
-                ret, dat = self.writeread_device(byte,details[1])
-            else:
-                ret, dat = self.writeread_device(byte,details[1],details[2])
-            print(f'{ret}, Setting: {name}, Sent: {byte[:-1]}, Returned: {dat}')
-            if ret != 0:
-                print(f'Could not write {name}, have you changed the value?')
-                self.error_encountered()
-
-        #Program dac settings
-        self.dac_settings(settings)
-
-        #Program control settings
-        self.program_bias_dacs(settings)
-
-        #Write stop header at end
-        self.writeread_str(['#1@0001\r'])
+        self.writeread_str(hex_str)
 
     def dac_settings(self,settings):
         '''
@@ -309,11 +257,11 @@ class pymms():
         Called whenever vThN & vThP are changed
         '''
         dac_hex = '#PC'+''.join([format(x,'X').zfill(4) for x in settings['dac_settings'].values()])+'\r'
-        self.writeread_str([dac_hex])
+        self.writeread_str([dac_hex],name='dac_settings')
 
     def program_bias_dacs(self,settings):
         '''
-        Programm the PIMMS2 DACs, called after hardware settings
+        Programm the PIMMS2 DACs
         '''
         hex_str = settings['operation_hex']['Programme PImMS2 Bias DACs']
         for data in settings['ControlSettings'].values():
@@ -329,24 +277,6 @@ class pymms():
                 hex_str.append(f'#1@{hex(hi)[2:].zfill(4)}\r')
                 hex_str.append(f'#1@{hex(lo)[2:].zfill(4)}\r')
         self.writeread_str(hex_str)
-
-    def calibration(self):
-        '''
-        How the calibration works:
-
-        Initially all pixels are set to the maximum allowed voltage (15) and the 
-        threshold (vThP-vThN) is scanned from -100mV to 100mV to uniformly observe 
-        no intensity to the maximum allowed voltage on every pixel.
-
-        vThN is set to 500mV
-
-        vThP is scanned from 400mV to 600mV
-
-        When high thresholds (>75mV) are set pixel masking is required due to the sheer 
-        volume of noise being experienced (Power Droop). In this region only one in
-        nine pixels is sampled to ensure adjacent pixels are not interfering with
-        one another.
-        '''
 
     def read_trim(self,filename=None):
         '''
@@ -395,3 +325,136 @@ class pymms():
                     file_arr[q] += (ba[arr[c,a]][b] * v)
                     i += 1
         return file_arr
+
+    def send_trim_to_pimms(self,trim):
+        '''
+        Sends trim data to camera.
+        '''
+        #Write the stop command to PIMMS
+        self.writeread_str(['#1@0000\r'])
+
+        #Wait 10ms before going to next step
+        time.sleep(0.01)
+
+        #Change the camera to setting 1
+        self.idflex.setAltSetting(altv=1)
+
+        #Tell camera that we are sending it trim data
+        self.writeread_str(['#0@0D01\r','#1@0002\r'])
+
+        #Set timeout for reading the trim file
+        self.idflex.setTimeOut(eps='0x2')
+        
+        #Send trim data to camera.
+        self.idflex.write_trim_device(trim)
+        
+        #Tell camera to stop expecting trim data
+        self.writeread_str(['#1@0000\r','#0@0D00\r'])
+
+        time.sleep(0.01)
+
+        #Change the camera to setting 0
+        self.idflex.setAltSetting(altv=0)
+
+        #Write stop header at end
+        self.writeread_str(['#1@0001\r'])
+
+    def send_output_types(self,settings,function=0):
+        #Set camera to take analogue picture along with exp bins
+        if function == 0:
+            self.send_operation(settings['operation_hex']['Experimental w. Analogue Readout'])
+        #Set camera to take experiment bins only
+        else:
+            self.send_operation(settings['operation_hex']['Experimental'])
+        self.writeread_str(['#1@0001\r'])
+
+        #Set timeout for reading from camera
+        self.idflex.setTimeOut()
+
+    def calibration(self):
+        '''
+        How the calibration works:
+
+        Initially all pixels are set to the maximum allowed voltage (15) and the 
+        threshold (vThP-vThN) is scanned from -100mV to 100mV to uniformly observe 
+        no intensity to the maximum allowed voltage on every pixel.
+
+        vThN is set to 500mV
+
+        vThP is scanned from 400mV to 600mV
+
+        When high thresholds (>75mV) are set pixel masking is required due to the sheer 
+        volume of noise being experienced (Power Droop). In this region only one in
+        nine pixels is sampled to ensure adjacent pixels are not interfering with
+        one another.
+        '''
+
+    def turn_on_pimms(self,settings):
+        '''
+        Send PIMMS the initial start-up commands.
+
+        Defaults are read from the PyMMS_Defaults.
+
+        All important voltages are initially set to 0mV.
+        '''
+        #Connect to the camera
+        self.idflex.init_device()
+
+        #Obtain the hardware settings for the PIMMS (hex -> binary), decode("latin-1") for str
+        for name, details in settings['HardwareInitialization'].items():
+            byte = (bytes.fromhex(details[0])).decode('latin-1')
+            if len(details) == 2:
+                ret, dat = self.idflex.writeread_device(byte,details[1])
+            else:
+                ret, dat = self.idflex.writeread_device(byte,details[1])
+                time.sleep(0.1)
+            print(f'{ret}, Setting: {name}, Sent: {byte[:-1]}, Returned: {dat}')
+            if ret != 0:
+                print(f'Could not write {name}, have you changed the value?')
+                self.idflex.error_encountered()
+
+        #Program dac settings
+        self.dac_settings(settings)
+
+        #Program control settings
+        self.program_bias_dacs(settings)
+
+        #Write stop header at end
+        self.writeread_str(['#1@0001\r'])
+
+    def start_up_pimms(self,settings,trim_file=None,function=0):
+        '''
+        This function sends the updated DAC and start-up commands to PIMMS.
+
+        The order of operations are IMPORTANT do not change them.
+        '''
+
+        #Set correct values since camera is loaded with 0 values initially
+        settings['dac_settings']['iSenseComp'] = 1204
+        settings['dac_settings']['iTestPix'] = 1253
+
+        #Program dac settings
+        self.dac_settings(settings)
+
+        #Send command strings to prepare PIMMS for image acquisition
+        self.send_operation(settings['operation_hex']['Start Up'])
+
+        #Set MSB and LSB to non-zero values and resend control values
+        settings['ControlSettings']['iCompTrimMSB_DAC'] = [162,[42]]
+        settings['ControlSettings']['iCompTrimLSB_DAC'] = [248,[43]]
+        self.program_bias_dacs(settings)
+
+        #After these commands are sent we now send the trim file to PIMMS
+        if trim_file == None:
+            trim = self.write_trim(value=0)
+        else:
+            trim = self.read_trim(trim_file)
+        
+        self.send_trim_to_pimms(trim)
+        self.send_output_types(settings,function)
+
+    def close_pimms(self):
+        '''
+        Disconnect from PIMMS camera.
+        '''
+        self.idflex.close_device()

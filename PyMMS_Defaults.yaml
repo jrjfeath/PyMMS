@@ -91,7 +91,7 @@ OperationModes:
     Start Up : [5, 6, 7, 9]
     Setup : [0, 0]
     Experimental : [7, 1, 4, 3, 2, 1]
-    Experimental w. Analogue Readout : [1, 4, 3, 0, 2, 1]
+    Experimental w. Analogue Readout : [7, 1, 4, 3, 0, 2, 1]
     Calibration Setup : [7, 1, 4, 3, 2, 1]
     Programme PImMS2 Bias DACs : [8,9]
 
