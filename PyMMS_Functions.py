@@ -400,11 +400,14 @@ class pymms():
         #Connect to the camera
         self.idflex.init_device()
 
+        time.sleep(5)
+
         #Obtain the hardware settings for the PIMMS (hex -> binary), decode("latin-1") for str
         for name, details in settings['HardwareInitialization'].items():
             byte = (bytes.fromhex(details[0])).decode('latin-1')
             if len(details) == 2:
                 ret, dat = self.idflex.writeread_device(byte,details[1])
+                time.sleep(0.1)
             else:
                 ret, dat = self.idflex.writeread_device(byte,details[1])
                 time.sleep(0.1)
@@ -416,8 +419,12 @@ class pymms():
         #Program dac settings
         self.dac_settings(settings)
 
+        time.sleep(1)
+
         #Program control settings
         self.program_bias_dacs(settings)
+
+        time.sleep(1)
 
         #Write stop header at end
         self.writeread_str(['#1@0001\r'])

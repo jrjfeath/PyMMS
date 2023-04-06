@@ -46,7 +46,7 @@ dac_settings:
 
 HardwareInitialization:
     # <Description> = <ConfigurationString(Hex)>, <ResponseByteCount(Dec)>, <WaitStateAfter(Dec)(ms)>
-    #GlobalInitialize : [23 FF E3 0D, 0, 100] #This throws an error in python but not in labview?
+    GlobalInitialize : [23 FF E3 0D, 0, 100] #This throws an error in python but not in labview?
     StopSM_PatternFPGA : [23 31 40 30 30 30 30 0D, 7]
     StopSM_ReadOutFPGA : [23 30 40 30 30 30 30 0D, 7]
     SetAnalogSamplePoint : [23 30 40 30 31 30 41 0D, 7]
