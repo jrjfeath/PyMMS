@@ -2,18 +2,17 @@ import os
 import queue
 import sys
 import time
-import threading
 
 import yaml
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-matplotlib.use('Qt5Agg')
+matplotlib.use('QtAgg')
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from PyMMS_Functions import pymms
-from PyQt5 import uic, QtWidgets, QtCore
+from PyQt6 import uic, QtWidgets, QtCore, QtGui
 
 #Before we proceed check if we can load Parameter file
 #Directory containing this file
@@ -23,7 +22,7 @@ try:
         defaults = yaml.load(stream,Loader=yaml.SafeLoader)
 except FileNotFoundError:
     print("Cannot find the Parameters file (PyMMS_Defaults.yaml), where did it go?")
-    sys.exit()
+    exit()
 
 #filename for the ui file
 uifn = "image.ui"
@@ -31,7 +30,7 @@ uifn = "image.ui"
 uifp = os.path.join(fd,uifn)
 if os.path.isfile(uifp) == False:
     print("Cannot find the ui file (image.ui), where did it go?")
-    sys.exit() 
+    exit() 
 
 #Create PyMMS object
 pymms = pymms()
@@ -39,18 +38,16 @@ pymms = pymms()
 #Create operation modes, these could change in the future
 defaults = pymms.operation_modes(defaults)
 
-class ImageAcquisitionThread(threading.Thread):
-    def __init__(self, size=5):
-        super(ImageAcquisitionThread, self).__init__()
+class ImageAcquisitionThread(QtCore.QObject):
+    finished = QtCore.pyqtSignal()
+    def __init__(self, size, parent=None):
+        QtCore.QThread.__init__(self, parent)
         self._running = True
         self._size = size
         self._image_queue = queue.Queue(maxsize=2)
 
     def get_output_queue(self):
-        return self._image_queue
-
-    def stop(self):
-        self._running = False
+        return self._image_queue  
 
     def run(self):
         while self._running:
@@ -65,12 +62,14 @@ class ImageAcquisitionThread(threading.Thread):
                 print("Encountered error: {error}, image acquisition will stop.".format(error=error))
                 break
         print("Image acquisition has stopped")
+        self.finished.emit()
+
+    def stop(self):
+        self._running = False
 
 class run_camera(QtCore.QObject):
     '''
     Main function for analysing frames from the camera.
-
-    ImageAcquisition thread grabs the data from the camera and passes it.
     '''
     finished = QtCore.pyqtSignal()
 
@@ -84,6 +83,7 @@ class run_camera(QtCore.QObject):
         Convert PIMMS output into an img format for displaying data
         '''
         x = 0
+        #If the user is looking at analogue and digital images
         if len(img_array) == 5:
             img = img_array[0]
             #Default min is 5000 and max is 40000
@@ -104,28 +104,21 @@ class run_camera(QtCore.QObject):
             img = ((img / np.max(img)) * 255)
             img_array[0] = img
             x+=1
+        #After processing or skipping analogue modify digital
         for a in range(4):
             img = img_array[x+a]
             img_array[x+a] = ((img / np.max(img)) * 255)
         return img_array
 
-    def task(self):
+    def run(self):
         if not self._isRunning:
             self._isRunning = True
         
         print('Starting camera.')
-        #Determine size of image array pimms should pass back
-        size = 5
-        if self._window._exp_type.currentIndex() == 1: size = 4
-        #Make a worker for the thread (QObject)
-        image_acquisition_thread = ImageAcquisitionThread(size)
         #Make a queue to store image data
-        image_queue = image_acquisition_thread.get_output_queue()
-        #Start taking pictures after camera setup
-        image_acquisition_thread.start()
-
+        image_queue = self._window.threads_[0][1].get_output_queue()
         #Variables to keep track of fps and averaging
-        shot_number = 1
+        shot_number = 0
         fps = 0
         start = time.time()
         save_timer = time.time()
@@ -160,10 +153,10 @@ class run_camera(QtCore.QObject):
                 tof = np.zeros((4096,))
                 #If user is doing exp w. anal
                 if len(images) == 5:
-                    #If user wants cumulative images
+                    #If user wants cumulative ToF Spectrum
                     if self._window._tof_view.currentIndex() == 4:
                         tof_i = images[1:]
-                    else:
+                    else: #Plot specific ToF Spectrum
                         tof_i = images[self._window._tof_view.currentIndex()+1]
                 else:
                     if self._window._tof_view.currentIndex() == 4:
@@ -187,17 +180,74 @@ class run_camera(QtCore.QObject):
                 image = np.rot90(image, self._window._rotation)
 
                 #Create an RGB image from the array
-                colour_image = (cm(image)[:,:,:3] * 255).astype(np.uint8)
-                self._window._image_ref.set_data(colour_image)
+                if (shot_number % 2) == 0:
+                    colour_image = (cm(image)[:,:,:3] * 255).astype(np.uint8)
+                    self._window._image_ref.set_data(colour_image)
 
-                #Update image canvas
-                self._window._imgc.draw()
-        
-        image_acquisition_thread.stop()
-        image_acquisition_thread.join()
+                    #Update image canvas
+                    self._window._imgc.draw()
+                shot_number+=1
 
         self.finished.emit()
         print('Camera stopping.')
+
+    def stop(self):
+        self._isRunning = False
+
+class camera_commands_thread(QtCore.QObject):
+    '''
+    Thread controls camera updates so the UI is not locked.
+    This allows the UI to update the progress bar for the user.
+    '''
+    progressChanged = QtCore.pyqtSignal(str)
+    finished = QtCore.pyqtSignal()
+
+    def __init__(self, function=0, trim_file=None, parent=None):
+        QtCore.QThread.__init__(self, parent)
+        self.function = function
+        self.trim_file = trim_file
+
+    def find_dll(self):
+        #Load the PIMMS dll file and report if it was successful or not
+        ret = pymms.idflex.open_dll()
+        self.progressChanged.emit(ret)
+        self.finished.emit()
+
+    def turn_on(self):
+        ret = pymms.turn_on_pimms(defaults)
+        self.progressChanged.emit(ret)
+        self.finished.emit()
+
+    def update_dacs(self):
+        ret = pymms.start_up_pimms(defaults,self.trim_file,self.function)
+        self.progressChanged.emit(ret)
+        self.finished.emit()
+
+    def update_readout(self):
+        ret = pymms.send_output_types(defaults,self.function)
+        self.progressChanged.emit(ret)
+        self.finished.emit()
+
+class progress_bar(QtCore.QObject):
+    progressChanged = QtCore.pyqtSignal(int)
+    finished = QtCore.pyqtSignal()
+
+    def __init__(self, delay,parent=None):
+        QtCore.QThread.__init__(self, parent)
+        self.delay = delay
+        self._isrunning = True
+
+    def run(self):
+        delay = self.delay
+        delay *= 10
+        count = 1
+        while count <= delay:
+            if self._isrunning == False: break
+            self.progressChanged.emit(int((count / delay) * 100))
+            count += 1
+            time.sleep(0.1)
+        self.progressChanged.emit(0)
+        self.finished.emit()
 
 class MplCanvas(FigureCanvasQTAgg):
     '''
@@ -260,27 +310,6 @@ class image_canvas(FigureCanvasQTAgg):
         if self._window._img_expanded == False:
             self._window.pop_out_window(1) 
 
-class Progress_Bar_Worker(QtCore.QObject):
-    progressChanged = QtCore.pyqtSignal(int)
-
-    def __init__(self, window):
-        super(Progress_Bar_Worker, self).__init__()
-        self._window = window
-
-    def task(self):
-        while True:
-            if self._window._pb == False:
-                time.sleep(0.1)
-            else:
-                wait = self._window._timeout / 100
-                progressbar_value = 0
-                while progressbar_value < 101:
-                    self.progressChanged.emit(progressbar_value)
-                    progressbar_value+=1
-                    time.sleep(wait)
-                self._window._pb = False
-                self.progressChanged.emit(0)
-
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super(MainWindow, self).__init__()
@@ -288,14 +317,18 @@ class MainWindow(QtWidgets.QMainWindow):
         #Load the ui file
         uic.loadUi(uifp,self)
 
+        self.threads_ = []
         self._rotation = 0 # Rotation angle of the image
         self._connected = False #Is camera connected?
         self._camera_running = False #Is camera running?
         self._camera_programmed = False
         self._tof_expanded = False
         self._img_expanded = False
-        self._timeout = 5 #Timeout for progressbar
-        self._pb = False #Should progressbar update?
+        self._error = False #Is there an error?
+        self._programming = False #Is the camera updating?
+        self._vthp.setValue(defaults['dac_settings']['vThP'])
+        self._vthn.setValue(defaults['dac_settings']['vThN'])
+        self._bins.setValue(defaults['ControlSettings']['Mem Reg Read'][0])
         [self._colourmap.addItem(x) for x in plt.colormaps()] #Add colourmaps
 
         '''
@@ -342,24 +375,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._rotate_c.clicked.connect(lambda: self.rotate_camera(0))
         self._rotate_cc.clicked.connect(lambda: self.rotate_camera(1))
         self._update_camera.clicked.connect(self.update_camera)
-        self._button.clicked.connect(self.run_camera)
+        self._button.clicked.connect(self.run_camera_threads)
+        self._vthp.valueChanged.connect(self.update_dafaults)
+        self._vthn.valueChanged.connect(self.update_dafaults)
+        self._bins.valueChanged.connect(self.update_dafaults)
         #Sometimes during idle the code tries to quit, prevent it
-        quit = QtWidgets.QAction("Quit", self)
+        quit = QtGui.QAction("Quit", self)
         quit.triggered.connect(self.closeEvent)
 
-        '''
-        Progress bar included to inform users of runtime left
-        '''
-        self._pb_thread = QtCore.QThread()
-        # Step 2: Create a worker object
-        self._pb_worker = Progress_Bar_Worker(self)
-        # Step 3: Move worker to the thread
-        self._pb_worker.moveToThread(self._pb_thread)
-        # Step 4: Connect signals and slots
-        self._pb_thread.started.connect(self._pb_worker.task)
-        self._pb_worker.progressChanged.connect(self._progressBar.setValue)
-        #Start thread
-        self._pb_thread.start()
+        self.camera_thread(0)
 
     def change_axes(self):
         '''
@@ -392,14 +416,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def closeEvent(self, event):
         close = QtWidgets.QMessageBox()
         close.setText("Would you like to quit?")
-        close.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel)
+        close.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Yes | 
+                                    QtWidgets.QMessageBox.StandardButton.No)
         close = close.exec()
 
-        if close == QtWidgets.QMessageBox.Yes:
+        if close == QtWidgets.QMessageBox.StandardButton.Yes.value:
             #If camera is connected disconnect it before closing
             if self._connected == True:
-                self.run_camera()
-                time.sleep(0.5) #Sleep between commands or it crashes
+                if self._camera_running == True:
+                    self.run_camera_threads()
+                    time.sleep(0.5) #Sleep between commands or it crashes
                 pymms.close_pimms()
             self._grid_matplotlib.close() #Close tof widget
             self._image_widget.close()
@@ -423,7 +449,7 @@ class MainWindow(QtWidgets.QMainWindow):
         '''
         Capture close events to pop the windows back into the main body
         '''
-        if (event.type() == QtCore.QEvent.Close and isinstance(source, QtWidgets.QWidget)):
+        if (event.type() == QtCore.QEvent.Type.Close and isinstance(source, QtWidgets.QWidget)):
             if source.windowTitle() == self._grid_matplotlib.windowTitle():
                 self._tof_expanded = False
                 self._grid_matplotlib.setParent(self)
@@ -449,31 +475,77 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             return super(MainWindow,self).eventFilter(source,event)
 
-    '''
-    From this point down are functions that control the PImMS camera
-    '''
+    def update_console(self,string):
+        '''
+        Update console log with result of command passed to PIMMS.
+        '''
+        print(string)
+        if 'Cannot' in string:
+            self._pb_worker._isrunning = False
+            self._error = True
+            self._plainTextEdit.setPlainText(string)
+            self._plainTextEdit.setStyleSheet(
+                """QPlainTextEdit {color: #FF0000;}"""
+            )
+            error = QtWidgets.QMessageBox()
+            error.setText(string)
+            error.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Ok)
+            error = error.exec()
+        else:
+            self._plainTextEdit.setPlainText(string)
 
-    def camera_control(self):
-        if self._connected == False:
-            self._timeout = 10
-            self._pb = True
-            self._plainTextEdit.setPlainText(f'Connecting to Camera, please wait!')
-            #Connect to the camera and run the initial commands
-            pymms.turn_on_pimms(defaults)
+    def update_pb(self, value):
+        self._progressBar.setValue(value)
+
+    def lock_camera_connect(self):
+        '''
+        Only connect to the camera and enable sending commands if there are no issues
+        '''
+        if self._connected == False and self._error == False:
             self._camera_connect.setText(f'Connected to Camera')
             self._camera_connect.setStyleSheet("color: green")
             self._camera_connect_button.setText(f'Disconnect')
             self._update_camera.setDisabled(False)
-            self._connected = True
+            self._connected = True      
         else:
-            #Disconnect from the camera
-            pymms.close_pimms()
             self._camera_connect.setText(f'Disconnected from camera')
             self._camera_connect.setStyleSheet("color: red")
             self._camera_connect_button.setText(f'Connect')
             self._button.setDisabled(True)
             self._update_camera.setDisabled(True)
             self._connected = False
+        self._camera_connect_button.setDisabled(False)
+
+    '''
+    Various functions that control the PImMS camera
+    '''
+
+    def update_dafaults(self):
+        '''
+        Update user controllable default values
+        '''
+        defaults['dac_settings']['vThP'] = self._vthp.value()
+        defaults['dac_settings']['vThN'] = self._vthn.value()
+        defaults['ControlSettings']['Mem Reg Read'][0] = self._bins.value()
+
+    def camera_control(self):
+        '''
+        Connect to and disconnect from the camera.
+        '''
+        if self._connected == False:
+            self._plainTextEdit.setPlainText(f'Connecting to Camera, please wait!')
+            self._camera_connect_button.setDisabled(True)
+            self.camera_thread(1) #Connect to camera
+            self.pb_thread(6) #Progress bar for connecting to camera
+        else:
+            self._plainTextEdit.setPlainText(f'Disconnecting from Camera, please wait!')
+            #Disconnect from the camera
+            ret = pymms.close_pimms()
+            if ret != 0:
+                self._plainTextEdit.setPlainText(f'{ret}')
+            else:
+                self._plainTextEdit.setPlainText(f'Disconnected from Camera!')
+            self.lock_camera_connect()
 
     def update_output(self):
         '''
@@ -496,52 +568,111 @@ class MainWindow(QtWidgets.QMainWindow):
         trim_file  = self._trim_dir.text()
         function = self._exp_type.currentIndex()
         if os.path.isfile(trim_file) == True:
-            pymms.start_up_pimms(defaults,trim_file,function=function)
-            print('Trim file!')
+            self.camera_thread(2,trim_file,function) #Connect to camera
+            self.pb_thread(3) #Progress bar for connecting to camera
+            self._plainTextEdit.setPlainText(f'Updating Camera DACs with trim file!')
         else:
-            #Update DAC settings and values, upload trim data
-            pymms.start_up_pimms(defaults,function=function)
-            print('No trim file!')
+            self.camera_thread(2,subfunction=function) #Connect to camera
+            self.pb_thread(3) #Progress bar for connecting to camera
+            self._plainTextEdit.setPlainText(f'Updating Camera DACs without trim file!')
         self._button.setDisabled(False)
         self._camera_programmed = True
 
-    def run_camera(self):
+    '''
+    Threads for running the UI. 
+
+    Work by creating a pyqt thread object and passing that object to a worker.
+
+    When the worker terminates it passes a finished signal which terminates the thread.
+    '''
+    def pb_thread(self,delay):
+        # Step 1: Create a QThread object
+        self._pb_thread = QtCore.QThread()
+        # Step 2: Create a worker object
+        self._pb_worker = progress_bar(delay)
+        # Step 3: Move worker to the thread
+        self._pb_worker.moveToThread(self._pb_thread)
+        self._pb_thread.started.connect(self._pb_worker.run)
+        self._pb_worker.finished.connect(self._pb_thread.quit)
+        self._pb_worker.finished.connect(self._pb_worker.deleteLater)
+        self._pb_thread.finished.connect(self._pb_thread.deleteLater)
+        self._pb_worker.progressChanged.connect(self.update_pb)
+        # Step 5: Start the thread
+        self._pb_thread.start()        
+
+    def camera_thread(self,function,trim_file=None,subfunction=0):
         '''
-        Controls the camera thread.
-
-        Works by creating a pyqt thread object and passing that object a worker.
-
-        When the worker terminates it passes a finished signal which terminates the thread.
+        This thread handles communication for updates with the camera.
         '''
-        def set_false(self):
-            # Set all values to false when user stops reading data
-            self._worker._isRunning = False
-            self._camera_running = False
-            self._button.setText("Start")
+        # Step 1: Create a QThread object
+        self._up_thread = QtCore.QThread()
+        # Step 2: Create a worker object
+        self._up_worker = camera_commands_thread(subfunction,trim_file)
+        # Step 3: Move worker to the thread
+        self._up_worker.moveToThread(self._up_thread)
+        # Step 4: Connect signals and slots
+        if function == 0: self._up_thread.started.connect(self._up_worker.find_dll)
+        if function == 1: 
+            self._up_thread.started.connect(self._up_worker.turn_on)
+            self._up_thread.finished.connect(self.lock_camera_connect)
+        if function == 2: self._up_thread.started.connect(self._up_worker.update_dacs)
+        if function == 3: self._up_thread.started.connect(self._up_worker.update_readout)
+        self._up_worker.progressChanged.connect(self.update_console)
+        self._up_worker.finished.connect(self._up_thread.quit)
+        self._up_worker.finished.connect(self._up_worker.deleteLater)
+        self._up_thread.finished.connect(self._up_thread.deleteLater)
+        # Step 5: Start the thread
+        self._up_thread.start()
 
+    def image_processing_thread(self,function,size=5):
+        '''
+        Controls the camera readout threads.
+
+        Function 0 creates a thread for getting frames from the camera
+
+        Function 1 creates a thread for processing the frames
+        '''
+        # Step 1: Create a QThread object
+        thread = QtCore.QThread()
+        # Step 2: Create a worker object
+        if function == 0: worker = ImageAcquisitionThread(size)
+        else: worker = run_camera(self)
+        # Step 3: Move worker to the thread
+        worker.moveToThread(thread)
+        # Step 4: Connect signals and slots
+        thread.started.connect(worker.run)
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        worker.finished.connect(thread.deleteLater)
+        return [thread, worker]
+
+    def run_camera_threads(self):
+        '''
+        This function generates the threads required for running the camera
+        '''
         if self._camera_running == False:
-            print('Camera starting')
-            #Disable camera options so user doesnt get confused
+            #Check if the user is running experimental with analogue or not
+            size = 5
+            if self._exp_type.currentIndex() == 1: size = 4
+            #Disable camera options so user doesnt get confused or break things
             self._camera_running = True
             self._button.setText("Stop")
-            # Step 1: Create a QThread object
-            self._thread = QtCore.QThread()
-            # Step 2: Create a worker object
-            self._worker = run_camera(self)
-            # Step 3: Move worker to the thread
-            self._worker.moveToThread(self._thread)
-            # Step 4: Connect signals and slots
-            self._thread.started.connect(self._worker.task)
-            self._worker.finished.connect(self._thread.quit)
-            # Step 5: Start the thread
-            self._thread.start()
-            # Step 6: Restore initial values so camera can run again
-            self._thread.finished.connect(
-                lambda: set_false(self)
-            )
-
+            self._update_camera.setDisabled(True)
+            #Empty any pre-existing threads
+            self.threads_.clear()
+            self.threads_ = [self.image_processing_thread(0,size),self.image_processing_thread(1)]
+            #The objects in self.threads_ are the thread and worker, start the thread
+            for thread in self.threads_:
+                thread[0].start()
         else:
-            self._worker._isRunning = False
+            #When we want to stop a thread we need to tell the worker (index 1) to stop
+            for thread in self.threads_:
+                thread[1].stop()
+                thread[0].quit()
+                thread[0].wait()
+            self._update_camera.setDisabled(False)
+            self._camera_running = False
+            self._button.setText("Start")
 
 def except_hook(cls, exception, traceback):
     sys.__excepthook__(cls, exception, traceback)

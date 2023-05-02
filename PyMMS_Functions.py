@@ -16,6 +16,7 @@ import time
 fd = os.path.dirname(__file__)
 #Directory containing dlls needed to run the camera
 os.add_dll_directory(fd)
+dll_path = os.path.join(fd,'idFLEX_USB.dll')
 
 class idflexusb():
     '''
@@ -28,13 +29,14 @@ class idflexusb():
 
     def __init__(self) -> None:
         self.camera_id = ctypes.c_void_p() #Set camera value to none
-        self.error = 0
+
+    def open_dll(self):
         try:
-            self.pimms = ctypes.cdll.LoadLibrary(f'{fd}/idFLEX_USB.dll')
-            print('Sucessfully loaded dll.')
+            self.pimms = ctypes.cdll.LoadLibrary(dll_path)
+            return f'Welcome to PymMS!\nPlease connect to camera.'
         except FileNotFoundError:
-            print(f'Cannot find: {fd}/idFLEX_USB.dll')
             self.error_encountered()
+            return f'Cannot find: {dll_path}'
 
     def error_encountered(self):
         '''
@@ -43,7 +45,6 @@ class idflexusb():
         if self.camera_id.value is not None:
             self.close_device()
             self.camera_id = 0
-        sys.exit()
 
     def init_device(self):
         '''
@@ -58,9 +59,10 @@ class idflexusb():
         ret = open_cam(ctypes.byref(camera_id))
         self.camera_id = camera_id
         if ret != 0:
-            print('Cannot connect to camera, check USB connection!')
             self.error_encountered()
+            return 'Cannot connect to camera, check USB connection!'
         time.sleep(0.5)
+        return ret
 
     def close_device(self):
         '''
@@ -73,8 +75,8 @@ class idflexusb():
 
         ret = close_cam(self.camera_id)
         if ret != 0:
-            print('Cannot disconnect from camera, check USB connection!')
-            self.error_encountered()
+            return 'Cannot disconnect from camera, check USB connection!'
+        return ret
 
     def writeread_device(self,data,bytestoread,timeout=1000):
         '''
@@ -124,8 +126,9 @@ class idflexusb():
 
         ret = alt(self.camera_id, value)
         if ret != 0:
-            print('Could not change camera register')
             self.error_encountered()
+            return 'Could not change camera register'
+        return ret
 
     def setTimeOut(self,eps='0x82'):
         '''
@@ -146,8 +149,9 @@ class idflexusb():
         ret = sto(self.camera_id, ep, timeout)
 
         if ret != 0:
-            print('Could not set camera timeout for trim data')
             self.error_encountered()
+            return 'Could not set camera timeout for trim data'
+        return ret
 
     def write_trim_device(self,trim,eps='0x2'):
         '''
@@ -170,8 +174,9 @@ class idflexusb():
         ret = w_cam(self.camera_id, ep, ctypes.byref(bytestowrite), arr.from_buffer(trim))
 
         if ret != 0:
-            print('Could not send camera trim data')
             self.error_encountered()
+            return 'Could not send camera trim data'
+        return ret
 
     def readImage(self,size=5):
         '''
@@ -195,8 +200,8 @@ class idflexusb():
                   array)
 
         if ret != 0:
-            print('Could not get image data')
             self.error_encountered()
+            return 'Could not get image data'
 
         #Get the images as a numpy array and then reshape
         img = np.ctypeslib.as_array(array)
@@ -222,9 +227,10 @@ class pymms():
             ret, dat = self.idflex.writeread_device(hexs,len(hexs))
             print(f'{ret}, Sent: {hexs[:-1]}, Returned: {dat}')
             if ret != 0:
-                print(f'Could not write {name}, have you changed a value?')
                 self.idflex.error_encountered()
+                return f'Cannot write {name}, have you changed a value?'
             time.sleep(0.01) #Wait 10ms between each send
+        return 0
 
     def operation_modes(self,settings):
         operation_hex = {}
@@ -240,24 +246,13 @@ class pymms():
         settings['operation_hex'] = operation_hex
         return settings
 
-    def send_operation(self,hex_str,MemReg=4,UpdateReg=False):
-        '''
-        Send various operation modes as defined in defaults file.
-        '''
-        #If the user wants to change the number of memory registers for the camera
-        if UpdateReg == True:
-            res = (83 << 8) | MemReg
-            hex_str.append(f'#1@{hex(res)[2:].zfill(4)}\r')
-
-        self.writeread_str(hex_str)
-
     def dac_settings(self,settings):
         '''
         Combine the DAC settings to form the initialization string for PIMMS (int -> hex)
         Called whenever vThN & vThP are changed
         '''
         dac_hex = '#PC'+''.join([format(x,'X').zfill(4) for x in settings['dac_settings'].values()])+'\r'
-        self.writeread_str([dac_hex],name='dac_settings')
+        return self.writeread_str([dac_hex],name='dac_settings')
 
     def program_bias_dacs(self,settings):
         '''
@@ -276,7 +271,7 @@ class pymms():
                 lo = (reg[1] << 8) | r
                 hex_str.append(f'#1@{hex(hi)[2:].zfill(4)}\r')
                 hex_str.append(f'#1@{hex(lo)[2:].zfill(4)}\r')
-        self.writeread_str(hex_str)
+        return self.writeread_str(hex_str)
 
     def read_trim(self,filename=None):
         '''
@@ -331,45 +326,151 @@ class pymms():
         Sends trim data to camera.
         '''
         #Write the stop command to PIMMS
-        self.writeread_str(['#1@0000\r'])
+        ret = self.writeread_str(['#1@0000\r'])
+        if ret != 0: return ret
 
         #Wait 10ms before going to next step
         time.sleep(0.01)
 
         #Change the camera to setting 1
-        self.idflex.setAltSetting(altv=1)
+        ret = self.idflex.setAltSetting(altv=1)
+        if ret != 0: return ret
 
         #Tell camera that we are sending it trim data
-        self.writeread_str(['#0@0D01\r','#1@0002\r'])
+        ret = self.writeread_str(['#0@0D01\r','#1@0002\r'])
+        if ret != 0: return ret
 
         #Set timeout for reading the trim file
-        self.idflex.setTimeOut(eps='0x2')
+        ret = self.idflex.setTimeOut(eps='0x2')
+        if ret != 0: return ret
         
         #Send trim data to camera.
-        self.idflex.write_trim_device(trim)
+        ret = self.idflex.write_trim_device(trim)
+        if ret != 0: return ret
         
         #Tell camera to stop expecting trim data
-        self.writeread_str(['#1@0000\r','#0@0D00\r'])
+        ret = self.writeread_str(['#1@0000\r','#0@0D00\r'])
+        if ret != 0: return ret
 
         time.sleep(0.01)
 
         #Change the camera to setting 0
-        self.idflex.setAltSetting(altv=0)
+        ret = self.idflex.setAltSetting(altv=0)
+        if ret != 0: return ret
 
         #Write stop header at end
-        self.writeread_str(['#1@0001\r'])
+        ret = self.writeread_str(['#1@0001\r'])
+        if ret != 0: return ret
+
+        #If no errors return pass
+        return 'Trim data sent!'
 
     def send_output_types(self,settings,function=0):
         #Set camera to take analogue picture along with exp bins
         if function == 0:
-            self.send_operation(settings['operation_hex']['Experimental w. Analogue Readout'])
+            ret = self.writeread_str(settings['operation_hex']['Experimental w. Analogue Readout'])
+            if ret != 0: return ret
         #Set camera to take experiment bins only
         else:
-            self.send_operation(settings['operation_hex']['Experimental'])
-        self.writeread_str(['#1@0001\r'])
+            ret = self.writeread_str(settings['operation_hex']['Experimental'])
+            if ret != 0: return ret
+        ret = self.writeread_str(['#1@0001\r'])
+        if ret != 0: return ret
 
         #Set timeout for reading from camera
-        self.idflex.setTimeOut()
+        ret = self.idflex.setTimeOut()
+        if ret != 0: return ret
+
+        return 'Updated camera view.'
+
+    def turn_on_pimms(self,settings):
+        '''
+        Send PIMMS the initial start-up commands.
+
+        Defaults are read from the PyMMS_Defaults.
+
+        All important voltages are initially set to 0mV.
+        '''
+        #Connect to the camera
+        ret = self.idflex.init_device()
+        if ret != 0: return ret
+
+        time.sleep(1)
+
+        #Obtain the hardware settings for the PIMMS (hex -> binary), decode("latin-1") for str
+        for name, details in settings['HardwareInitialization'].items():
+            byte = (bytes.fromhex(details[0])).decode('latin-1')
+            if len(details) == 2:
+                ret, dat = self.idflex.writeread_device(byte,details[1])
+                time.sleep(0.1)
+            else:
+                ret, dat = self.idflex.writeread_device(byte,details[1],details[2])
+                if name == 'GlobalInitialize':
+                    time.sleep(3)
+                else:
+                    time.sleep(0.1)
+            print(f'{ret}, Setting: {name}, Sent: {byte[:-1]}, Returned: {dat}')
+            if ret != 0:
+                self.idflex.error_encountered()
+                return f'Could not write {name}, have you changed the value?'
+
+        #Program dac settings
+        ret = self.dac_settings(settings)
+        if ret != 0: return ret
+
+        time.sleep(1)
+
+        #Program control settings
+        ret = self.program_bias_dacs(settings)
+        if ret != 0: return ret
+
+        time.sleep(1)
+
+        #Write stop header at end
+        ret = self.writeread_str(['#1@0001\r'])
+        if ret != 0: return ret
+
+        #If all connection commands successful return 0
+        return 'Connected to PIMMS!'
+
+    def start_up_pimms(self,settings,trim_file=None,function=0):
+        '''
+        This function sends the updated DAC and start-up commands to PIMMS.
+
+        The order of operations are IMPORTANT do not change them.
+        '''
+
+        #Set correct values since camera is loaded with 0 values initially
+        settings['dac_settings']['iSenseComp'] = 1204
+        settings['dac_settings']['iTestPix'] = 1253
+
+        #Program dac settings
+        ret = self.dac_settings(settings)
+        if ret != 0: return ret
+
+        #Send command strings to prepare PIMMS for image acquisition
+        ret = self.writeread_str(settings['operation_hex']['Start Up'])
+        if ret != 0: return ret
+
+        #Set MSB and LSB to non-zero values and resend control values
+        settings['ControlSettings']['iCompTrimMSB_DAC'] = [162,[42]]
+        settings['ControlSettings']['iCompTrimLSB_DAC'] = [248,[43]]
+        ret = self.program_bias_dacs(settings)
+        if ret != 0: return ret
+
+        #After these commands are sent we now send the trim file to PIMMS
+        if trim_file == None:
+            trim = self.write_trim(value=0)
+        else:
+            trim = self.read_trim(trim_file)
+        
+        ret = self.send_trim_to_pimms(trim)
+        if ret != 'Trim data sent!': return ret
+        ret = self.send_output_types(settings,function)
+        if ret != 'Updated camera view.': return ret
+
+        #If all DAC setting and startup commands successful
+        return 'Updated PIMMS DACs!'
 
     def calibration(self):
         '''
@@ -389,79 +490,11 @@ class pymms():
         one another.
         '''
 
-    def turn_on_pimms(self,settings):
-        '''
-        Send PIMMS the initial start-up commands.
-
-        Defaults are read from the PyMMS_Defaults.
-
-        All important voltages are initially set to 0mV.
-        '''
-        #Connect to the camera
-        self.idflex.init_device()
-
-        time.sleep(5)
-
-        #Obtain the hardware settings for the PIMMS (hex -> binary), decode("latin-1") for str
-        for name, details in settings['HardwareInitialization'].items():
-            byte = (bytes.fromhex(details[0])).decode('latin-1')
-            if len(details) == 2:
-                ret, dat = self.idflex.writeread_device(byte,details[1])
-                time.sleep(0.1)
-            else:
-                ret, dat = self.idflex.writeread_device(byte,details[1])
-                time.sleep(0.1)
-            print(f'{ret}, Setting: {name}, Sent: {byte[:-1]}, Returned: {dat}')
-            if ret != 0:
-                print(f'Could not write {name}, have you changed the value?')
-                self.idflex.error_encountered()
-
-        #Program dac settings
-        self.dac_settings(settings)
-
-        time.sleep(1)
-
-        #Program control settings
-        self.program_bias_dacs(settings)
-
-        time.sleep(1)
-
-        #Write stop header at end
-        self.writeread_str(['#1@0001\r'])
-
-    def start_up_pimms(self,settings,trim_file=None,function=0):
-        '''
-        This function sends the updated DAC and start-up commands to PIMMS.
-
-        The order of operations are IMPORTANT do not change them.
-        '''
-
-        #Set correct values since camera is loaded with 0 values initially
-        settings['dac_settings']['iSenseComp'] = 1204
-        settings['dac_settings']['iTestPix'] = 1253
-
-        #Program dac settings
-        self.dac_settings(settings)
-
-        #Send command strings to prepare PIMMS for image acquisition
-        self.send_operation(settings['operation_hex']['Start Up'])
-
-        #Set MSB and LSB to non-zero values and resend control values
-        settings['ControlSettings']['iCompTrimMSB_DAC'] = [162,[42]]
-        settings['ControlSettings']['iCompTrimLSB_DAC'] = [248,[43]]
-        self.program_bias_dacs(settings)
-
-        #After these commands are sent we now send the trim file to PIMMS
-        if trim_file == None:
-            trim = self.write_trim(value=0)
-        else:
-            trim = self.read_trim(trim_file)
-        
-        self.send_trim_to_pimms(trim)
-        self.send_output_types(settings,function)
-
     def close_pimms(self):
         '''
         Disconnect from PIMMS camera.
         '''
-        self.idflex.close_device()
+        ret = self.idflex.close_device()
+        if ret != 0: return ret
+
+        return 'Disconnected from PIMMS!'
