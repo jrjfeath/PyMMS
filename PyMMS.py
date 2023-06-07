@@ -3,8 +3,9 @@ import queue
 import sys
 import time
 
-import yaml
+import h5py
 import numpy as np
+import yaml
 import matplotlib
 import matplotlib.pyplot as plt
 matplotlib.use('QtAgg')
@@ -78,37 +79,54 @@ class run_camera(QtCore.QObject):
         self._isRunning = False
         self._window = window
 
-    def parse_images(self,img_array):
+    def extract_tof_data(self,mem_regs):
         '''
-        Convert PIMMS output into an img format for displaying data
+        Parse images and get the X,Y,T data from each mem reg
         '''
-        x = 0
-        #If the user is looking at analogue and digital images
-        if len(img_array) == 5:
-            img = img_array[0]
-            #Default min is 5000 and max is 40000
-            img[img > 40000] = 40000
-            img[img < 5000] = 5000
-            img = img.flatten()
-            #Loop through each row, data storage is strange
-            rows = []
-            for i in range(324):
-                row = img[i*324:(i+1)*324]
-                a = row[0::4]
-                b = row[1::4]
-                c = row[2::4]
-                d = row[3::4]
-                rows.append(np.hstack((a,b,c,d)))
-            img = rows
-            img = img - np.min(img)
-            img = ((img / np.max(img)) * 255)
-            img_array[0] = img
-            x+=1
-        #After processing or skipping analogue modify digital
-        for a in range(4):
-            img = img_array[x+a]
-            img_array[x+a] = ((img / np.max(img)) * 255)
-        return img_array
+        #Skip analogue array if it exists
+        tof_data = []
+        for reg in mem_regs:
+            Y,X = np.nonzero(reg)
+            ToF = reg[Y,X]
+            st = np.transpose(np.vstack((X,Y,ToF)))
+            tof_data.append(np.array(st,dtype=np.int16))
+        return tof_data
+
+    def parse_analogue(self,img):
+        '''
+        Convert PIMMS array into an img format for displaying data
+        '''
+        #Default min is 5000 and max is 40000
+        img[img > 40000] = 40000
+        img[img < 5000] = 5000
+        img = img.flatten()
+        #Loop through each row, data storage is strange
+        rows = []
+        for i in range(324):
+            row = img[i*324:(i+1)*324]
+            a = row[0::4]
+            b = row[1::4]
+            c = row[2::4]
+            d = row[3::4]
+            rows.append(np.hstack((a,b,c,d)))
+        img = rows
+        img = img - np.min(img)
+        return img
+
+    def save_data(self,filename,frm_image):
+        '''
+        Save each frame as its own group containing bin data
+        '''
+        with h5py.File(filename, 'a') as hf:
+            #Loop through each shot/frame
+            for shot_id, data in frm_image.items():
+                grp = hf.create_group(str(shot_id))
+                #For each shot loop through each bin
+                for bin_id,bin_data in data.items():
+                    grp2 = grp.create_group(str(bin_id))
+                    #Store the X,Y,ToF of each bin 
+                    for key, value in bin_data.items():
+                        grp2.create_dataset(key,data=value.astype(np.int16),compression='gzip')
 
     def run(self):
         if not self._isRunning:
@@ -117,11 +135,27 @@ class run_camera(QtCore.QObject):
         print('Starting camera.')
         #Make a queue to store image data
         image_queue = self._window.threads_[0][1].get_output_queue()
+        #Check what type of images are being output from the camera, 0 anlg + exp, 1 exp
+        img_types = self._window._camera_function
+
+        #If the user is saving data create the file
+        if self._window._save_box.isChecked():
+            #Create a filename for saving data
+            filename = os.path.join(self._window._dir_name.text(),self._window._file_name.text())
+            filename += '_0000.h5'
+
+            #Check if file already exists so you dont overwrite data
+            fid = 1
+            while os.path.exists(filename):
+                filename = f'{filename[:-8]}_{"{:04d}".format(fid)}.h5'
+                fid+=1
+
         #Variables to keep track of fps and averaging
         shot_number = 0
         fps = 0
         start = time.time()
         save_timer = time.time()
+        frm_image = {}
 
         #Continue checking the image queue until we kill the camera.
         while self._isRunning == True:
@@ -130,6 +164,13 @@ class run_camera(QtCore.QObject):
                 self._window._fps.setText(f'{fps} fps')
                 start = time.time()
                 fps = 0
+
+            #Save data every 30 seconds to reduce disk writes
+            if time.time() - save_timer > 5:
+                if self._window._save_box.isChecked():
+                    self.save_data(filename,frm_image)
+                frm_image = {} #Remove all frames from storage
+                save_timer = time.time()
 
             #If queue is empty the program will crash if you try to check it
             if image_queue.empty():
@@ -145,43 +186,57 @@ class run_camera(QtCore.QObject):
 
                 #Get image array from queue
                 images = image_queue.get_nowait()
-
+                img_index = self._window._window_view.currentIndex()
                 '''
-                Grab TOF data, get unique values and update plot.
+                Grab TOF data, then get unique values and update plot.
                 '''
-                #Get tof plot data before getting live view image
-                tof = np.zeros((4096,))
-                #If user is doing exp w. anal
-                if len(images) == 5:
-                    #If user wants cumulative ToF Spectrum
-                    if self._window._tof_view.currentIndex() == 4:
-                        tof_i = images[1:]
-                    else: #Plot specific ToF Spectrum
-                        tof_i = images[self._window._tof_view.currentIndex()+1]
+                #Get the X, Y, ToF data from each mem reg
+                if img_types == 0: 
+                    save_xy = [np.nonzero(x) for x in images[1:]]
+                    save_tof = [x[x != 0] for x in images[1:]]
+                    tof_data = self.extract_tof_data(images[1:])
                 else:
-                    if self._window._tof_view.currentIndex() == 4:
-                        tof_i = images
-                    tof_i = images[self._window._tof_view.currentIndex()]
-                uniques, counts = np.unique(tof_i.flatten(), return_counts=True)
+                    save_xy = [np.nonzero(x) for x in images]
+                    save_tof = [x[x != 0] for x in images]
+                    tof_data = self.extract_tof_data(images)
+                    img_index-=1 #There is no analogue image here so remove one index
+                
+                #Save the frame data
+                frm_image[shot_number] = {}
+                #Loop through each bin and save X, Y, ToF data
+                for i,x in enumerate(save_tof):
+                    Y, X = save_xy[i][0], save_xy[i][1]
+                    frm_image[shot_number][i] = {'X':X,'Y':Y,'ToF':x}
+
+                #Get tof plot data before getting live view image
+                tof = np.zeros(4096)
+                #Get the ToF data from the tof_data list
+                uniques, counts = np.unique(np.vstack(tof_data)[:,-1].flatten(), return_counts=True)
                 tof[uniques] = counts
                 self._window._plot_ref.set_ydata(tof)
                 self._window._tofp.draw()
 
                 '''
                 After TOF data has been plotted, convert into img format.
-                '''
-                images = self.parse_images(images)
-                if len(images) == 4:
-                    images = np.insert(images,0,np.zeros((324,324)),axis=0)
-                image = images[self._window._window_view.currentIndex()]
-                if self._window._window_view.currentIndex() != 0:
-                    image[image > self._window._max_x.value()] = 0
-                    image[image < self._window._min_x.value()] = 0
-                image = np.rot90(image, self._window._rotation)
 
-                #Create an RGB image from the array
+                Only plot every other frame to prevent lag.
+                '''
                 if (shot_number % 2) == 0:
-                    colour_image = (cm(image)[:,:,:3] * 255).astype(np.uint8)
+                    #Make an empty array so there is always something to convert
+                    image = np.zeros((324,324))
+                    #If the user wants to plot the analogue image
+                    if img_types == 0 and self._window._window_view.currentIndex() == 0: 
+                        image = self.parse_analogue(images[0])
+                    else:
+                        #Remove any ToF outside of range
+                        image = images[img_index]
+                        image[image > self._window._max_x.value()] = 0
+                        image[image < self._window._min_x.value()] = 0
+                    image = ((image / np.max(image)))
+                    image = np.rot90(image, self._window._rotation)
+
+                    #Create an RGB image from the array
+                    colour_image = (cm(image)[:,:,:3])
                     self._window._image_ref.set_data(colour_image)
 
                     #Update image canvas
@@ -322,10 +377,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._connected = False #Is camera connected?
         self._camera_running = False #Is camera running?
         self._camera_programmed = False
+        self._camera_function = 0
         self._tof_expanded = False
         self._img_expanded = False
         self._error = False #Is there an error?
-        self._programming = False #Is the camera updating?
         self._vthp.setValue(defaults['dac_settings']['vThP'])
         self._vthn.setValue(defaults['dac_settings']['vThN'])
         self._bins.setValue(defaults['ControlSettings']['Mem Reg Read'][0])
@@ -367,7 +422,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._image_widget.origwidth = self._image_widget.width()
         self._image_widget.origheight = self._image_widget.height()
         self._image_widget.installEventFilter(self)
-        self._image_ref = self._imgc.axes.imshow(np.zeros((324,324,3))) #Create an empty img
+        self._image_ref = self._imgc.axes.imshow(np.zeros((324,324,3)),origin='lower') #Create an empty img
         '''
         Various commands for buttons found on the ui
         '''
@@ -393,7 +448,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._tofp.axes.set_ylim(self._min_y.value(), self._max_y.value())
         self._tofp.draw()
 
-    def rotate_camera(self,option):
+    def rotate_camera(self,option):       
         #Rotate clockwise
         if option == 0:
             self._rotation += 1
@@ -567,6 +622,7 @@ class MainWindow(QtWidgets.QMainWindow):
         '''
         trim_file  = self._trim_dir.text()
         function = self._exp_type.currentIndex()
+        self._camera_function = function
         if os.path.isfile(trim_file) == True:
             self.camera_thread(2,trim_file,function) #Connect to camera
             self.pb_thread(3) #Progress bar for connecting to camera
