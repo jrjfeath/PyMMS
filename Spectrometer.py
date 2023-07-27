@@ -1,7 +1,6 @@
 import os
 import ctypes
 import time
-import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -32,7 +31,7 @@ def get_spectrum(num):
 
 Driver.openSpectraMeter()
 Driver.initialize()
-#Start a 10ms wavelength aquisition
+#Start a wavelength aquisition
 Driver.getSpectrum(ctypes.c_int(int_time))
 #Loop until the spectrum is collected
 while Driver.getSpectrumDataReadyFlag() != 1:

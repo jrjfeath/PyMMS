@@ -1,16 +1,12 @@
-import ctypes
 import os
 import math
-import sys
 import numpy as np
 import time
-#Important notes about ctypes 
-#Pointers are made using: ptr = ctypes.c_void_p()
-#When you want to pass a pointer to a C function use ctypes.byref(ptr) in the function call
 
-#DLL functions should have their arguments and return types defined
-#func.restype = ctypes.c_int (i.e function returns an int)
-#func.argtypes = [ctypes.POINTER(ctypes.c_void_p),ctypes.c_int] (takes a pointer and int)
+#########################################################################################
+#This file is used to test the UI without actually communicating with PImMS
+#All communication functions have been replaced with dummy functions 
+#########################################################################################
 
 #Directory containing this file
 fd = os.path.dirname(__file__)
@@ -28,11 +24,11 @@ class idflexusb():
     '''
 
     def __init__(self) -> None:
-        self.camera_id = ctypes.c_void_p() #Set camera value to none
+        self.camera_id = 0
 
     def open_dll(self):
         try:
-            self.pimms = ctypes.cdll.LoadLibrary(dll_path)
+            self.pimms = 0
             return f'Welcome to PymMS!\nPlease connect to camera.'
         except FileNotFoundError:
             self.error_encountered()
@@ -42,8 +38,7 @@ class idflexusb():
         '''
         If an error is encountered while running code closes connection to the camera.
         '''
-        if self.camera_id.value is not None:
-            self.close_device()
+        if self.camera_id is not None:
             self.camera_id = 0
 
     def init_device(self):
@@ -51,32 +46,14 @@ class idflexusb():
         Return of 0 means the camera successfully connected \n
         Return of 7 means there was an error connection to the camera
         '''
-        open_cam = self.pimms.Init_Device
-        open_cam.restype = ctypes.c_int
-        open_cam.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
-
-        camera_id = ctypes.c_void_p()
-        ret = open_cam(ctypes.byref(camera_id))
-        self.camera_id = camera_id
-        if ret != 0:
-            self.error_encountered()
-            return 'Cannot connect to camera, check USB connection!'
-        time.sleep(0.5)
-        return ret
+        return 0
 
     def close_device(self):
         '''
         Return of 0 means the camera successfully disconnected\n
         Return of anything else means there was an error disconnecting camera
         '''
-        close_cam = self.pimms.Close_Device
-        close_cam.restype = ctypes.c_int 
-        close_cam.argtypes = [ctypes.c_void_p]
-
-        ret = close_cam(self.camera_id)
-        if ret != 0:
-            return 'Cannot disconnect from camera, check USB connection!'
-        return ret
+        return 0
 
     def writeread_device(self,data,bytestoread,timeout=1000):
         '''
@@ -84,51 +61,14 @@ class idflexusb():
         Format: data [string], byte size [int], Timeout(ms) [int]
         '''
 
-        wr_cam = self.pimms.serialWriteRead
-
-        data_in_ba = bytearray()
-        data_in_ba.extend(map(ord, data))
-        char_array = ctypes.c_char * len(data_in_ba)
-        bytestowrite = ctypes.c_int32(ctypes.sizeof(char_array))
-        timeout = ctypes.c_int32(timeout)
-
-        wr_cam.restype = ctypes.c_int
-        wr_cam.argtypes = [ctypes.c_void_p, 
-                           ctypes.POINTER(ctypes.c_int32), 
-                           ctypes.POINTER(ctypes.c_char * ctypes.sizeof(char_array)), 
-                           ctypes.POINTER(ctypes.c_int32),  
-                           ctypes.POINTER(ctypes.c_char * bytestoread), 
-                           ctypes.c_int32] 
-
-        data_out = ctypes.create_string_buffer(bytestoread)
-        bytestoread = ctypes.c_int32(ctypes.sizeof(data_out))
-
-        ret = wr_cam(self.camera_id, 
-                     ctypes.byref(bytestowrite), 
-                     char_array.from_buffer(data_in_ba), 
-                     ctypes.byref(bytestoread), 
-                     data_out, 
-                     timeout)
-
-        return ret, data_out.raw
+        return 0, 0
 
     def setAltSetting(self,altv=0):
         '''
         Writing trim data requires the camera to be set to alt = 1.
         '''
 
-        alt = self.pimms.setAltSetting
-        alt.restype = ctypes.c_int
-        alt.argtypes = [ctypes.c_void_p, 
-                        ctypes.c_uint8]
-
-        value = ctypes.c_uint8(altv)
-
-        ret = alt(self.camera_id, value)
-        if ret != 0:
-            self.error_encountered()
-            return 'Could not change camera register'
-        return ret
+        return 0
 
     def setTimeOut(self,eps='0x82'):
         '''
@@ -137,21 +77,7 @@ class idflexusb():
         EPS is changed when writing trim and taking images.
         '''
 
-        sto = self.pimms.setTimeOut
-        sto.restype = ctypes.c_int
-        sto.argtypes = [ctypes.c_void_p, 
-                        ctypes.c_uint8,
-                        ctypes.c_int32]
-
-        ep = ctypes.c_uint8(int(eps,16))
-        timeout = ctypes.c_int32(5000)
-
-        ret = sto(self.camera_id, ep, timeout)
-
-        if ret != 0:
-            self.error_encountered()
-            return 'Could not set camera timeout for trim data'
-        return ret
+        return 0
 
     def write_trim_device(self,trim,eps='0x2'):
         '''
@@ -159,24 +85,7 @@ class idflexusb():
         Format:  trim data [array]
         '''
 
-        w_cam = self.pimms.writeData
-
-        ep = ctypes.c_uint8(int(eps,16))
-        arr = ctypes.c_uint8 * trim.size #Make an empty array
-        bytestowrite = ctypes.c_int32(ctypes.sizeof(arr)) #get size of array
-
-        w_cam.restype = ctypes.c_int
-        w_cam.argtypes = [ctypes.c_void_p,
-                          ctypes.c_uint8,
-                          ctypes.POINTER(ctypes.c_int32),
-                          ctypes.POINTER(ctypes.c_uint8 * ctypes.sizeof(arr))]
-
-        ret = w_cam(self.camera_id, ep, ctypes.byref(bytestowrite), arr.from_buffer(trim))
-
-        if ret != 0:
-            self.error_encountered()
-            return 'Could not send camera trim data'
-        return ret
+        return 0
 
     def readImage(self,size=5):
         '''
@@ -185,27 +94,10 @@ class idflexusb():
         (324,1296).
         '''
 
-        arrayType = ((ctypes.c_uint16 * 324) * (324 * size))
-        array = arrayType()
-        buffer = ctypes.c_int32(ctypes.sizeof(array))
-
-        rda = self.pimms.readDataAsync
-        rda.restype = ctypes.c_int
-        rda.argtypes = [ctypes.c_void_p, 
-                        ctypes.POINTER(ctypes.c_int32), 
-                        ctypes.POINTER(arrayType)]
-        
-        ret = rda(self.camera_id,
-                  ctypes.byref(buffer),
-                  array)
-
-        if ret != 0:
-            self.error_encountered()
-            return 'Could not get image data'
-
         #Get the images as a numpy array and then reshape
-        img = np.ctypeslib.as_array(array)
-        img = img.reshape(size,324,324)
+        samples = [0, 50, 100, 150, 200, 255]
+        probablility = [0.9, 0.02, 0.02, 0.02, 0.02, 0.02]
+        img  = np.random.choice(samples, size=(size,324,324), p = probablility)
 
         return img
 
@@ -484,4 +376,3 @@ class pymms():
         if ret != 0: return ret
 
         return 'Disconnected from PIMMS!'
-    
