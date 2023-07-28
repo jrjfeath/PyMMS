@@ -12,7 +12,7 @@ matplotlib.use('QtAgg')
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
-from PyMMS_Functions import pymms
+from PyMMS_Functions_Spoof import pymms
 from PyQt6 import uic, QtWidgets, QtCore, QtGui
 
 #Before we proceed check if we can load Parameter file
@@ -409,6 +409,11 @@ class run_camera(QtCore.QObject):
                     if self._window._view.currentIndex() == 1:
                         cml_image = ((cml_image  * (cml_number - 1)) / cml_number) + (image / cml_number)
                         image = cml_image
+                        image = ((image / np.max(image)))
+                    
+                    # Scale the image based off the slider
+                    if self._window._vmax.value() != 100:
+                        image[image > (self._window._vmax.value()*0.01)] = 1.0
 
                     #Create an RGB image from the array
                     colour_image = (cm(image)[:,:,:3])

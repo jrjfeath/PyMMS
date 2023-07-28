@@ -1,7 +1,8 @@
 import os
 import math
-import numpy as np
+import sys
 import time
+import numpy as np
 
 #########################################################################################
 #This file is used to test the UI without actually communicating with PImMS
@@ -11,7 +12,7 @@ import time
 #Directory containing this file
 fd = os.path.dirname(__file__)
 #Directory containing dlls needed to run the camera
-os.add_dll_directory(fd)
+if sys.platform == "win32": os.add_dll_directory(fd)
 dll_path = os.path.join(fd,'idFLEX_USB.dll')
 
 class idflexusb():
