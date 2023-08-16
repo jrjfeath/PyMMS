@@ -11,7 +11,7 @@ sys.path.append(directory)
 clr.AddReference(file_name)
 from CommandInterfaceDLS import *
 
-instrument="COM6"
+instrument="COM1"
 myDLS = DLS() #DLS is imported from CommandInterfaceDLS
 result = myDLS.OpenInstrument(instrument)
 if result == 0:
@@ -25,7 +25,7 @@ else:
 result = myDLS.VE()
 print ('version => ', result)
 
-result = myDLS.TP() #Returns currently position
+result = myDLS.TP() #Returns current position
 print('Position',result)
 
 result = myDLS.VA_Set(50.0) #Maximum velocity is 300 mm/s

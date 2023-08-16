@@ -42,7 +42,7 @@ class idflexusb():
         '''
         If an error is encountered while running code closes connection to the camera.
         '''
-        if self.camera_id.value is not None:
+        if self.camera_id is not None:
             self.close_device()
             self.camera_id = 0
 
