@@ -97,7 +97,7 @@ class idflexusb():
 
         #Get the images as a numpy array and then reshape
         samples = [0, 50, 100, 150, 200, 255]
-        probablility = [0.9, 0.02, 0.02, 0.02, 0.02, 0.02]
+        probablility = [0.9, 0.04, 0.025, 0.02, 0.01, 0.005]
         img  = np.random.choice(samples, size=(size,324,324), p = probablility)
 
         return img

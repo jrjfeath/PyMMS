@@ -1,70 +1,87 @@
+'''
+This library is used for communication with delay stages being integrated into the PyMMS software.
+If a new class is added make sure to follow the function calls, see newport class, to ensure no code is broken.
+'''
 import sys
-import clr
+import serial.tools.list_ports #pyserial
 
-#What directory is the dll stored in?
-directory = r"Q:\Cameras\PIMMS"
-#What is the name of the newport dll?
-file_name = 'Newport.DLS.CommandInterfaceDLS'
+#########################################################################################
+# Class used for communicating with the Newport delay stage
+#########################################################################################
+class newport_delay_stage():
+    '''
+    Controls communication with Newport delay stages.\n
+    If the name of the dll is different pass that when the function is called.\n
+    Imported at the end of the script to prevent conflicts with PyQt library.\n
+    Requires the pythonnet and serial libraries.
+    '''
 
-#Load in newport c++ library
-sys.path.append(directory)
-clr.AddReference(file_name)
-from CommandInterfaceDLS import *
+    def __init__(self,directory,hardware_id='PID=104D:3009',filename='Newport.DLS.CommandInterfaceDLS'):
+        self.hardware_id = hardware_id
+        import clr #pythonnet
+        #Load in newport c++ library
+        sys.path.append(directory)
+        clr.AddReference(filename)
+        from CommandInterfaceDLS import DLS
+        self.myDLS = DLS()
 
-instrument="COM1"
-myDLS = DLS() #DLS is imported from CommandInterfaceDLS
-result = myDLS.OpenInstrument(instrument)
-if result == 0:
-    print(f'Open port {instrument} => Successful')
-else:
-    print(f'Open port {instrument} => failure', result)
+    def get_com_ports(self):
+        '''
+        List the available devices on the computer.\n
+        The Newport stage used in B2 has hardware ID PID=104D:3009\n
+        If the hardware id is different, figure out which id belongs\n 
+        to your stage and pass that variable to the class call.
+        '''
+        ports = serial.tools.list_ports.comports()
+        com_list = []
+        for port, desc, hwid in sorted(ports):
+            if self.hardware_id in hwid:
+                com_list.append(f"{port}; Delay Stage ; {hwid}")
+            else:
+                com_list.append(f"{port}; {desc} ; {hwid}")
+        return com_list
 
-#result = myDLS.RS()
-#print ('Reset controller', result)
+    def connect_stage(self,value):
+        '''Connect to the delay stage by providing a COM port.'''
+        return self.myDLS.OpenInstrument(value)
 
-result = myDLS.VE()
-print ('version => ', result)
+    def get_position(self):
+        '''
+        Returns the position of the delay stage.
+        TP returns a tuple, 0 index is error code, 1 index is the value
+        '''
+        return str(self.myDLS.TP()[1])
+    
+    def get_minimum_position(self):
+        '''Get the minimum position of the delay stage (mm).'''
+        return str(self.myDLS.SL_Get()[1])
+    
+    def get_maximum_position(self):
+        '''Get the maximum position of the delay stage (mm).'''
+        return str(self.myDLS.SR_Get()[1])
+    
+    def set_position(self,value):
+        '''Set the position of the delay stage.'''
+        self.myDLS.PA_Set(value)
 
-result = myDLS.TP() #Returns current position
-print('Position',result)
+    def set_velocity(self,value):
+        '''Set the velocity.\n Maximum velocity is 300 mm/s'''
+        self.myDLS.VA_Set(value)
 
-result = myDLS.VA_Set(50.0) #Maximum velocity is 300 mm/s
-print('Set Velocity',result)
+    def get_velocity(self):
+        '''Get the velocity.'''
+        return str(self.myDLS.VA_Get()[1])
+    
+    def set_acceleration(self,value):
+        '''Set the acceleration.'''
+        self.myDLS.AC_Set(value)
 
-result = myDLS.VA_Get() #Maximum velocity is 300 mm/s
-print('Velocity',result)
+    def get_acceleration(self):
+        '''Get the acceleration.'''
+        return str(self.myDLS.AC_Get()[1])
 
-result = myDLS.AC_Set(3900.0) #Maximum value of 3900 mm/s^2
-print('Set Acceleration',result)
-
-result = myDLS.AC_Get() #Maximum value of 3900 mm/s^2
-print('Acceleration',result)
-
-result = myDLS.PG_Get()
-print('Distance per move',result)
-
-#result = myDLS.PD(10) #Move relative to current position
-#print('Moving:',result)
-
-#result = myDLS.PA_Set(10) #Move to position
-#print('Moving:',result)
-
-result = myDLS.TP()
-print('Position',result)
-
-result = myDLS.SL_Get()
-print('Neg',result)
-
-result = myDLS.SR_Get()
-print('Pos',result)
-
-result = myDLS.TP()
-print('Position',result)
-
-result = myDLS.TP()
-print('Position',result)
-
-result = myDLS.TP()
-print('Position',result)
-
-myDLS.CloseInstrument()
+    def disconnect_stage(self):
+        '''
+        Disconnect from the delay stage
+        '''
+        self.myDLS.CloseInstrument()

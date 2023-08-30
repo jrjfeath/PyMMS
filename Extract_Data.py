@@ -20,7 +20,7 @@ def Extract_Data(filename,pos_data=None):
         for key in keys:
             # Open the datasets by key value as a numpy array
             shot_data = hf[str(key)][()]
-            # ~ inverts the array and sets 0 to -1, any checks if the row is all -1
+            # ~ inverts the array and sets 0 to -1, and checks if the row is all -1
             shot_indices = np.where(~shot_data.any(axis=1))[0]
             # Make an empty array to store the shot id information
             shot_id = np.zeros((shot_data.shape[0]),dtype=np.int32)

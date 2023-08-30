@@ -8,7 +8,6 @@
 #Native python library imports
 import os
 import queue
-import serial.tools.list_ports
 import sys
 import time
 #Pip install library imports, found in install folder
@@ -16,15 +15,16 @@ import time
 #this library conflicts with PyQt if loaded before mainwindow
 import h5py
 import numpy as np
+import pyqtgraph as pg
 import yaml
-import matplotlib
-import matplotlib.pyplot as plt
-matplotlib.use('QtAgg')
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT as NavigationToolbar
-from matplotlib.figure import Figure
+import warnings
 from PyQt6 import uic, QtWidgets, QtCore, QtGui
 #Functions to import that relate to PIMMS ideflex.dll
 from PyMMS_Functions import pymms
+#Import the newport class function
+from Delay_Stage import newport_delay_stage
+#Supress numpy divide and cast warnings
+warnings.simplefilter('ignore', RuntimeWarning)
 
 #Before we proceed check if we can load Parameter file
 #Directory containing this file
@@ -55,33 +55,18 @@ defaults = pymms.operation_modes(defaults)
 #########################################################################################
 class ImageAcquisitionThread(QtCore.QObject):
     finished = QtCore.pyqtSignal()
-    def __init__(self, size, dly_connected, dly_steps, parent=None):
-        QtCore.QThread.__init__(self, parent)
+    def __init__(self, size=5):
+        super(ImageAcquisitionThread, self).__init__()
         self.running = True
-        self.dly_connected = dly_connected
         self.size = size
         self.image_queue = queue.Queue(maxsize=2)
-        self.dly_steps = dly_steps
 
     def run(self):
-        current_shot = 0
+        #Get image from camera
         while self.running:
-            if self.dly_connected == True:
-                #Get position from delay stage
-                pos = myDLS.TP()[1]
-            else:
-                pos = False
-            #Get image from camera
             a = pymms.idflex.readImage(size = self.size)
-            #If any of the queues are full skip them
-            try: self.image_queue.put_nowait([pos,a])
+            try: self.image_queue.put_nowait(a)
             except queue.Full: pass
-            if self.dly_connected == True and self.dly_steps['saving'] == True:
-                current_shot+=1
-                if current_shot >= self.dly_steps['frames']:
-                    self.dly_steps['start']+=self.dly_steps['step']
-                    myDLS.PA_Set(self.dly_steps['start'])
-                    current_shot = 0
         print("Image acquisition has stopped")
         self.finished.emit()
 
@@ -94,6 +79,7 @@ class run_camera(QtCore.QObject):
     '''
     finished = QtCore.pyqtSignal()
     limit = QtCore.pyqtSignal() #indicate when frames == limit
+    progress = QtCore.pyqtSignal(str)
 
     def __init__(self, window):
         super(run_camera, self).__init__()
@@ -172,7 +158,6 @@ class run_camera(QtCore.QObject):
         #Variables to keep track of fps and averaging
         cml_number = 0
         shot_number = 0
-        tracker = 0
         fps=0
         timer = time.time()
         save_timer = time.time()
@@ -182,6 +167,15 @@ class run_camera(QtCore.QObject):
         stopped = False
         self.window_._frame_count.setText('0')
 
+        #Delay stage end position
+        if self.window_.dly_connected:
+            delay_start = self.window_._delay_t0.value() + (self.window_._dly_start.value() / 6671.2819)
+            delay_step = self.window_._dly_step.value() / 6671.2819
+            delay_end = self.window_._delay_t0.value() + (self.window_._dly_stop.value() / 6671.2819)
+            delay_end += delay_step #include the delay end in the position search
+            delay_current = delay_start
+            delay_shots = 0
+
         #Continue checking the image queue until we kill the camera.
         while self.running == True:
             #Update the fps count every second
@@ -190,7 +184,6 @@ class run_camera(QtCore.QObject):
                 self.window_._frame_count.setText(f'{shot_number}')
                 timer = time.time()
                 fps = 0
-                tracker = 0
 
             #Save data every 30 seconds to reduce disk writes
             if time.time() - save_timer > 5:
@@ -201,8 +194,9 @@ class run_camera(QtCore.QObject):
                 save_timer = time.time()
 
             #Stop acquiring images when limit is reached
-            if shot_number >= self.window_._n_of_frames.value() and self.window_._n_of_frames.value() != 0 and self.window_._save_box.isChecked() == True:
+            if shot_number >= self.window_._n_of_frames.value() and self.window_._n_of_frames.value() != 0 and self.window_._save_box.isChecked() and not stopped:
                 self.window_._frame_count.setText(f'{shot_number}')
+                stopped = True
                 shot_number = 0
                 self.limit.emit()
 
@@ -214,18 +208,28 @@ class run_camera(QtCore.QObject):
                 fps+=1
 
                 #Get image array from queue
-                position, images = image_queue.get_nowait()
-                if position: 
-                    pos_data.append(position)
-                    #Stop the process if the camera passes the stop point
-                    if self.window_._dly_step.value() > 0 and self.window_._save_box.isChecked() == True:
-                        if position > (self.window_._dly_stop.value()+self.window_._dly_step.value()) and stopped == False:
-                            stopped = True
-                            self.limit.emit()
-                    else:
-                        if position < (self.window_._dly_stop.value()+self.window_._dly_step.value()) and stopped == False:
-                            stopped = True
-                            self.limit.emit()                       
+                images = image_queue.get_nowait()
+
+                #Check if the user is saving delay position data
+                if self.window_.dly_connected and self.window_._save_box.isChecked():
+                    position = float(delay_stage.get_position())
+                    delay_shots+=1
+                    #If we have reached the max number of images for this position
+                    if delay_shots == self.window_._dly_img.value():
+                        self.progress.emit(f'Moved to: {round(position,4)}, End at: {round(delay_end,4)}')
+                        delay_current+=delay_step
+                        delay_stage.set_position(delay_current)
+                        delay_shots = 0
+                    #If we have passed the end point stop camera
+                    if (delay_start > delay_end) and (delay_current <= delay_end) and (not stopped): 
+                        print(delay_current, delay_end)
+                        stopped = True
+                        self.limit.emit()
+                    if (delay_start < delay_end) and (delay_current >= delay_end) and (not stopped):
+                        print(delay_current, delay_end)
+                        stopped = True
+                        self.limit.emit()
+                                        
                 img_index = self.window_._window_view.currentIndex()
 
                 '''
@@ -240,83 +244,64 @@ class run_camera(QtCore.QObject):
 
                 frm_image.append(np.vstack(tof_data))
                 frm_image.append(np.zeros((4,),dtype=np.int16))
+                #After frame data is saved save position data
+                if self.window_.dly_connected and self.window_._save_box.isChecked(): 
+                    pos_data.append(position)
 
-                if (time.time() - timer) > (0.1 * tracker):
-                    tracker+=1
+                #If the user wants to refresh the cumulative image clear array
+                if self.window_.reset_cml_ == True:
+                    cml_image = np.zeros((324,324),dtype=np.float32)
+                    cml_number = 1
+                    self.window_.reset_cml_ = False
 
-                    #Determine colourmap
-                    cm_text = self.window_._colourmap.currentText()
-                    if cm_text == 'None':
-                        cm = plt.get_cmap('gray')
-                    else:
-                        cm = plt.get_cmap(cm_text)
+                #Get tof plot data before getting live view image
+                tof = np.zeros(4096)
+                #Get the ToF data from the tof_data list
+                if self.window_._tof_view.currentIndex() != 4: tof_data = tof_data[self.window_._tof_view.currentIndex()]
+                #If the camera doesn't have the voltages set correctly it will sometimes see nothing
+                try:
+                    uniques, counts = np.unique(np.vstack(tof_data)[:,-2].flatten(), return_counts=True) 
+                    tof[uniques] = counts
+                except (IndexError,ValueError):
+                    pass
+                total_ions = int(np.sum(tof))
+                self.window_.ion_count_displayed = total_ions
+                self.window_.tof_counts_ = tof
 
-                    #If the user wants to refresh the cumulative image clear array
-                    if self.window_.reset_cml_ == True:
-                        cml_image = np.zeros((324,324),dtype=np.float32)
-                        cml_number = 1
-                        self.window_.reset_cml_ = False
+                #Update the ion count
+                del self.window_.ion_counts_[0]
+                self.window_.ion_counts_.append(total_ions)
 
-                    #Get tof plot data before getting live view image
-                    tof = np.zeros(4096)
-                    #Get the ToF data from the tof_data list
-                    if self.window_._tof_view.currentIndex() != 4: tof_data = tof_data[self.window_._tof_view.currentIndex()]
-                    try:
-                        uniques, counts = np.unique(np.vstack(tof_data)[:,-2].flatten(), return_counts=True) 
-                        tof[uniques] = counts
-                    except (IndexError,ValueError):
-                        pass
-                        # print(tof_data)
-                        # self.window_.update_console('Cannot understand data from camera, is it being triggered correctly?')
-                        # self.stop()
-                    total_ions = int(np.sum(tof))
-                    self.window_._ion_count.setText(str(total_ions))
-                    self.window_._tofp.ln.set_ydata(tof)
+                '''
+                After TOF data has been plotted, convert into img format.
+                '''
+                #Make an empty array so there is always something to convert
+                image = np.zeros((324,324))
+                #If the user wants to plot the analogue image
+                if img_types == 0 and self.window_._window_view.currentIndex() == 0: 
+                    image = self.parse_analogue(images[0])
+                else:
+                    #Remove any ToF outside of range
+                    image = images[img_index]
+                    image[image > self.window_._max_x.value()] = 0
+                    image[image < self.window_._min_x.value()] = 0
+                image = ((image / np.max(image)))
+                image = np.rot90(image, self.window_.rotation_)
 
-                    #Update the ion count
-                    del self.window_.ion_counts_[0]
-                    self.window_.ion_counts_.append(total_ions)
-                    self.window_.ionc_.ln.set_ydata(np.array(self.window_.ion_counts_))
-                    #If it is not the first image
-                    self.window_.ionc_.axes.set_ylim(np.nanmin(self.window_.ion_counts_)-1, np.nanmax(self.window_.ion_counts_)+1)
-                    self.window_.ionc_.ymin.set_text(np.nanmin(self.window_.ion_counts_)-1)
-                    self.window_.ionc_.yavg.set_text(int(np.nanmean(self.window_.ion_counts_)))
-                    self.window_.ionc_.ymax.set_text(np.nanmax(self.window_.ion_counts_)+1)
-
-                    '''
-                    After TOF data has been plotted, convert into img format.
-                    '''
-                    #Make an empty array so there is always something to convert
-                    image = np.zeros((324,324))
-                    #If the user wants to plot the analogue image
-                    if img_types == 0 and self.window_._window_view.currentIndex() == 0: 
-                        image = self.parse_analogue(images[0])
-                    else:
-                        #Remove any ToF outside of range
-                        image = images[img_index]
-                        image[image > self.window_._max_x.value()] = 0
-                        image[image < self.window_._min_x.value()] = 0
+                if self.window_._view.currentIndex() == 1:
+                    cml_image = ((cml_image  * (cml_number - 1)) / cml_number) + (image / cml_number)
+                    image = cml_image
                     image = ((image / np.max(image)))
-                    image = np.rot90(image, self.window_.rotation_)
+                
+                # Scale the image based off the slider
+                if self.window_._vmax.value() != 100:
+                    image[image > (self.window_._vmax.value()*0.01)] = 0
+                    image = ((image / np.max(image)))
 
-                    if self.window_._view.currentIndex() == 1:
-                        cml_image = ((cml_image  * (cml_number - 1)) / cml_number) + (image / cml_number)
-                        image = cml_image
-                        image = ((image / np.max(image)))
-                    
-                    # Scale the image based off the slider
-                    if self.window_._vmax.value() != 100:
-                        image[image > (self.window_._vmax.value()*0.01)] = 1.0
+                self.window_.image_ = np.array(image * 255,dtype=np.uint8)
 
-                    #Create an RGB image from the array
-                    colour_image = (cm(image)[:,:,:3])
-                    self.window_._image_ref.set_data(colour_image)
-
-                    self.window_._imgc.draw()
-                    self.window_._tofp.draw()
-
-                    #Update image canvas
-                    cml_number+=1
+                #Update image canvas
+                cml_number+=1
 
         if self.window_._save_box.isChecked():
             self.save_data(filename,frm_image,shot_number,pos_data)
@@ -326,185 +311,6 @@ class run_camera(QtCore.QObject):
 
     def stop(self):
         self.running = False
-
-#########################################################################################
-# Canvas for plotting ToF and image data
-#########################################################################################
-class BlitManager:
-    def __init__(self, canvas, animated_artists=()):
-        """
-        Parameters
-        ----------
-        canvas : FigureCanvasAgg
-            The canvas to work with, this only works for subclasses of the Agg
-            canvas which have the `~FigureCanvasAgg.copy_from_bbox` and
-            `~FigureCanvasAgg.restore_region` methods.
-
-        animated_artists : Iterable[Artist]
-            List of the artists to manage
-
-        Copied from matplotlib's website:
-        https://matplotlib.org/stable/tutorials/advanced/blitting.html
-        """
-        self.canvas = canvas
-        self._bg = None
-        self._artists = []
-
-        for a in animated_artists:
-            self.add_artist(a)
-        # grab the background on every draw
-        self.cid = canvas.mpl_connect("draw_event", self.on_draw)
-
-    def on_draw(self, event):
-        """Callback to register with 'draw_event'."""
-        cv = self.canvas
-        if event is not None:
-            if event.canvas != cv:
-                raise RuntimeError
-        self._bg = cv.copy_from_bbox(cv.figure.bbox)
-        self._draw_animated()
-
-    def add_artist(self, art):
-        """
-        Add an artist to be managed.
-
-        Parameters
-        ----------
-        art : Artist
-
-            The artist to be added.  Will be set to 'animated' (just
-            to be safe).  *art* must be in the figure associated with
-            the canvas this class is managing.
-
-        """
-        if art.figure != self.canvas.figure:
-            raise RuntimeError
-        art.set_animated(True)
-        self._artists.append(art)
-
-    def _draw_animated(self):
-        """Draw all of the animated artists."""
-        fig = self.canvas.figure
-        for a in self._artists:
-            fig.draw_artist(a)
-
-    def update(self):
-        """Update the screen with animated artists."""
-        cv = self.canvas
-        fig = cv.figure
-        # paranoia in case we missed the draw event,
-        if self._bg is None:
-            self.on_draw(None)
-        else:
-            # restore the background
-            cv.restore_region(self._bg)
-            # draw all of the animated artists
-            self._draw_animated()
-            # update the GUI state
-            cv.blit(fig.bbox)
-
-class MplCanvas(FigureCanvasQTAgg):
-    '''
-    Matplotlib canvas for TOF readout data.
-
-    Added to the _grid_matplotlib object in the image.ui
-    '''
-    def __init__(self, parent=None, width=7, height=3, dpi=72):
-        super(MplCanvas, self).__init__(Figure(figsize=(width, height), dpi=dpi))
-        self.window_ = parent
-        plt.rc('axes', labelsize=2)# fontsize of the x and y labels
-        #Adjusts the constraints of the plot so it best fits the grid
-        self.figure.subplots_adjust(
-            top=0.896,
-            bottom=0.135,
-            left=0.125,
-            right=0.964,
-            hspace=0.1,
-            wspace=0.115
-        )
-        self.axes = self.figure.add_subplot(111)
-        #Set default grid limits
-        self.axes.set_xlim(self.window_._min_x.value(), self.window_._max_x.value())
-        self.axes.set_ylim(self.window_._min_y.value(), self.window_._max_y.value())
-        #Change the font size so it is within bounds of grid
-        for label in (self.axes.get_xticklabels() + self.axes.get_yticklabels()):
-            label.set_fontsize(7)
-        (self.ln,) = self.axes.plot(np.zeros(4096,),'r', animated=True) #putting it in () returns actor
-        self.bm = BlitManager(self.figure.canvas, [self.ln])
-
-    def mouseDoubleClickEvent(self, event):
-        '''
-        If user double clicks plot expand it
-        '''
-        event.ignore() #Ignore click
-        if self.window_.tof_expanded_ == False:
-            self.window_.ui_plots.pop_out_window(0) 
-
-class IonCountCanvas(FigureCanvasQTAgg):
-    '''
-    Matplotlib canvas for TOF readout data.
-
-    Added to the _ion_count_matplotlib object in the image.ui
-    '''
-    def __init__(self, parent=None, width=7, height=3, dpi=72):
-        super(IonCountCanvas, self).__init__(Figure(figsize=(width, height), dpi=dpi))
-        self.window_ = parent
-        plt.rc('axes', labelsize=2)# fontsize of the x and y labels
-        #Adjusts the constraints of the plot so it best fits the grid
-        self.figure.subplots_adjust(
-            top=0.896,
-            bottom=0.135,
-            left=0.125,
-            right=0.964,
-            hspace=0.1,
-            wspace=0.115
-        )
-        self.axes = self.figure.add_subplot(111)
-        #Set default grid limits
-        self.axes.set_xlim(0, len(self.window_.ion_counts_))
-        self.axes.get_yaxis().set_ticks([])
-        self.ymin = self.axes.annotate('0',(-35,-5),xycoords='axes points')
-        bbox = self.figure.get_window_extent().transformed(self.figure.dpi_scale_trans.inverted())
-        width, height = bbox.width*self.figure.dpi, bbox.height*self.figure.dpi
-        self.yavg = self.axes.annotate('0.5',(-35,height/4),xycoords='axes points')
-        self.ymax = self.axes.annotate('1',(-35,height/2),xycoords='axes points')
-        #Change the font size so it is within bounds of grid
-        for label in (self.axes.get_xticklabels() + self.axes.get_yticklabels()):
-            label.set_fontsize(7)
-        (self.ln,) = self.axes.plot(self.window_.ion_counts_,'r', animated=True) #putting it in () returns actor
-        self.bm = BlitManager(self.figure.canvas, [self.ln,self.ymin,self.yavg,self.ymax])
-
-    def mouseDoubleClickEvent(self, event):
-        '''
-        If user double clicks plot expand it
-        '''
-        event.ignore() #Ignore click
-        if self.window_.ionc_expanded_ == False:
-            self.window_.ui_plots.pop_out_window(2) 
-
-class image_canvas(FigureCanvasQTAgg):
-    def __init__(self, parent=None, width=1, height=1, dpi=72):
-        super(image_canvas, self).__init__(Figure(figsize=(width, height), dpi=dpi))
-        self.window_ = parent
-        self.figure.subplots_adjust(
-            top=1.0,
-            bottom=0,
-            left=0,
-            right=1.0,
-            hspace=0,
-            wspace=0
-        )
-        self.axes = self.figure.add_subplot(111)
-        self.axes.set_axis_off()
-
-    def mouseDoubleClickEvent(self, event):
-        '''
-        If user double clicks plot expand it
-        '''
-        event.ignore() #Ignore click
-        if self.window_.img_expanded_ == False:
-            self.window_.ui_plots.pop_out_window(1) 
-
 #########################################################################################
 # Class used for modifying the plots
 #########################################################################################
@@ -521,56 +327,58 @@ class UI_Plots():
 
         Axes are updated by looking at value changes.
         '''
-        self.window_._tofp = MplCanvas(self.window_, width=5, height=4)
-        toolbar = NavigationToolbar(self.window_._tofp, self.window_)
-        layout = QtWidgets.QGridLayout()
-        layout.addWidget(toolbar)
-        layout.addWidget(self.window_._tofp)
-        self.window_._grid_matplotlib.setLayout(layout) #Add plot to grid
-        self.window_._grid_matplotlib.origpos = self.window_._grid_matplotlib.pos()
-        self.window_._grid_matplotlib.origwidth = self.window_._grid_matplotlib.width()
-        self.window_._grid_matplotlib.origheight = self.window_._grid_matplotlib.height()
-        self.window_._grid_matplotlib.installEventFilter(self.window_)
-        self.window_._grid_matplotlib.setWindowTitle('ToF Spectrum')
-        self.window_._min_x.valueChanged.connect(self.change_axes)
-        self.window_._max_x.valueChanged.connect(self.change_axes)
-        self.window_._min_y.valueChanged.connect(self.change_axes)
-        self.window_._max_y.valueChanged.connect(self.change_axes)
+        
         '''
         Setup plot for image readout
         '''
-        self.window_._imgc = image_canvas(self.window_)
-        layout = QtWidgets.QGridLayout()
-        layout.addWidget(self.window_._imgc)
-        self.window_._image_widget.setLayout(layout)
+        self.window_.image_widget_origpos = self.window_._image_widget.pos()
+        self.window_.image_widget_origwidth = self.window_._image_widget.width()
+        self.window_.image_widget_origheight = self.window_._image_widget.height()
         self.window_._image_widget.setWindowTitle('Readout')
-        self.window_._image_widget.origpos = self.window_._image_widget.pos()
-        self.window_._image_widget.origwidth = self.window_._image_widget.width()
-        self.window_._image_widget.origheight = self.window_._image_widget.height()
         self.window_._image_widget.installEventFilter(self.window_)
-        self.window_._image_ref = self.window_._imgc.axes.imshow(np.zeros((324,324,3)),origin='lower') #Create an empty img
-        '''
-        Setup plot for ion count
-        '''
-        self.window_.ionc_ = IonCountCanvas(self.window_, width=5, height=4)
-        toolbar = NavigationToolbar(self.window_.ionc_, self.window_)
-        layout = QtWidgets.QGridLayout()
-        layout.addWidget(toolbar)
-        layout.addWidget(self.window_.ionc_)
-        self.window_._ion_count_matplotlib.setLayout(layout) #Add plot to grid
-        self.window_._ion_count_matplotlib.origpos = self.window_._ion_count_matplotlib.pos()
-        self.window_._ion_count_matplotlib.origwidth = self.window_._ion_count_matplotlib.width()
-        self.window_._ion_count_matplotlib.origheight = self.window_._ion_count_matplotlib.height()
-        self.window_._ion_count_matplotlib.installEventFilter(self.window_)
-        self.window_._ion_count_matplotlib.setWindowTitle('Ion Count')
+        self.grid = QtWidgets.QGridLayout(self.window_._image_widget)
+        self.window_.graphics_view_ = pg.RawImageWidget(self.window_._image_widget)
+        self.grid.addWidget(self.window_.graphics_view_, 0, 0, 1, 1)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.window_.graphics_view_.sizePolicy().hasHeightForWidth())
+        self.window_.graphics_view_.setSizePolicy(sizePolicy)
+        self.window_.graphics_view_.setImage(self.window_.image_, levels=[0,255])
+
+        self.window_.tof_plot_origpos = self.window_._tof_plot.pos()
+        self.window_.tof_plot_origwidth = self.window_._tof_plot.width()
+        self.window_.tof_plot_origheight = self.window_._tof_plot.height()
+        self.window_.tof_plot_line = self.window_._tof_plot.plot(self.window_.ion_counts_,pen=pg.mkPen(color=(255, 0, 0)))
+        self.window_.tof_selection_line_min = self.window_._tof_plot.plot(self.window_.ion_counts_,pen=pg.mkPen(color=(0, 0, 0)))
+        self.window_.tof_selection_line_max = self.window_._tof_plot.plot(self.window_.ion_counts_,pen=pg.mkPen(color=(0, 0, 0)))
+        self.window_._tof_plot.setBackground('w')
+        self.window_._tof_plot.installEventFilter(self.window_)
+        
+        self.window_.ion_count_plot_origpos = self.window_._ion_count_plot.pos()
+        self.window_.ion_count_plot_origwidth = self.window_._ion_count_plot.width()
+        self.window_.ion_count_plot_origheight = self.window_._ion_count_plot.height()
+        self.window_.ion_count_plot_line = self.window_._ion_count_plot.plot(self.window_.ion_counts_,pen=pg.mkPen(color=(255, 0, 0)))
+        self.window_._ion_count_plot.setBackground('w')
+        self.window_._ion_count_plot.installEventFilter(self.window_)
+
+        self.change_axes()
+
+    def plot_selection(self):
+        '''Updates the selection of the ToF displayed on the plot.'''
+        x = np.zeros(4096)
+        x[self.window_._min_x.value()] = self.window_._max_y.value()
+        x[self.window_._max_x.value()] = self.window_._max_y.value()
+        self.window_.tof_selection_line_min.setData(x,pen=pg.mkPen(color=(0, 0, 0), style=QtCore.Qt.PenStyle.DotLine))
+        self.window_.tof_selection_line_max.setData(x,pen=pg.mkPen(color=(0, 0, 0), style=QtCore.Qt.PenStyle.DotLine))
 
     def change_axes(self):
         '''
         Updates the TOF axes to make it easier to view data.
         '''
-        self.window_._tofp.axes.set_xlim(self.window_._min_x.value(), self.window_._max_x.value())
-        self.window_._tofp.axes.set_ylim(self.window_._min_y.value(), self.window_._max_y.value())
-        self.window_._tofp.draw()
+        self.window_._tof_plot.setXRange(self.window_._tof_range_min.value(), self.window_._tof_range_max.value(), padding=0)
+        self.window_._tof_plot.setYRange(self.window_._min_y.value(), self.window_._max_y.value(), padding=0)
+        self.plot_selection()
 
     def rotate_camera(self,option):       
         #Rotate clockwise
@@ -585,9 +393,9 @@ class UI_Plots():
     def pop_out_window(self,option):
         if option == 0: #If user is popping out tof
             self.window_.tof_expanded_ = True
-            self.window_._grid_matplotlib.setParent(None)
-            self.window_._grid_matplotlib.move(int(self.window_.width()/2),int(self.window_.height()/2))
-            self.window_._grid_matplotlib.show()
+            self.window_._tof_plot.setParent(None)
+            self.window_._tof_plot.move(int(self.window_.width()/2),int(self.window_.height()/2))
+            self.window_._tof_plot.show()
         elif option == 1: #if user is popping out image
             self.window_.img_expanded_ = True
             self.window_._image_widget.setParent(None)
@@ -595,13 +403,30 @@ class UI_Plots():
             self.window_._image_widget.show()
         else:
             self.window_.ionc_expanded_ = True
-            self.window_._ion_count_matplotlib.setParent(None)
-            self.window_._ion_count_matplotlib.move(int(self.window_.width()/2),int(self.window_.height()/2))
-            self.window_._ion_count_matplotlib.show()           
+            self.window_._ion_count_plot.setParent(None)
+            self.window_._ion_count_plot.move(int(self.window_.width()/2),int(self.window_.height()/2))
+            self.window_._ion_count_plot.show()           
 
 #########################################################################################
 # Classes used for threading various elements of the UI
 #########################################################################################
+class update_plots(QtCore.QObject):
+    finished = QtCore.pyqtSignal()
+    update = QtCore.pyqtSignal()
+
+    def __init__(self, parent=None):
+        QtCore.QThread.__init__(self, parent)
+        self.running = True
+
+    def run(self):
+        while self.running == True:
+            self.update.emit()
+            QtCore.QThread.msleep(100)
+        self.finished.emit()
+
+    def stop(self):
+        self.running = False
+
 class get_dly_position(QtCore.QObject):
     '''
     Thread reading position data of delay stage for UI
@@ -615,8 +440,8 @@ class get_dly_position(QtCore.QObject):
 
     def run(self):
         while self.running == True:
-            value = myDLS.TP()
-            try: self.progressChanged.emit(value[1])
+            value = delay_stage.get_position()
+            try: self.progressChanged.emit(float(value))
             except: print('Cannot read position data.')
             time.sleep(0.5)
         self.finished.emit()
@@ -687,6 +512,17 @@ class UI_Threads():
     '''    
     def __init__(self, main_window):
         self.window_ = main_window
+
+    def update_plot_thread(self):
+        self.udpl_thread = QtCore.QThread()
+        self.udpl_worker = update_plots()
+        self.udpl_worker.moveToThread(self.udpl_thread)
+        self.udpl_worker.update.connect(self.window_.update_plots)
+        self.udpl_worker.finished.connect(self.udpl_thread.quit)
+        self.udpl_worker.finished.connect(self.udpl_worker.deleteLater)
+        self.udpl_thread.started.connect(self.udpl_worker.run)
+        self.udpl_thread.finished.connect(self.udpl_thread.deleteLater)
+        self.udpl_thread.start()
 
     def dly_pos_thread(self):
         # Step 1: Create a QThread object
@@ -765,15 +601,10 @@ class UI_Threads():
         thread = QtCore.QThread()
         # Step 2: Create a worker object
         if function == 0: 
-            dly_step = {
-                'frames': self.window_._dly_img.value(),
-                'start': self.window_._dly_start.value(),
-                'step': self.window_._dly_step.value(),
-                'saving':  self.window_._save_box.isChecked()
-                }
-            worker = ImageAcquisitionThread(size, self.window_.dly_connected, dly_step)
+            worker = ImageAcquisitionThread(size)
         else: 
             worker = run_camera(self.window_)
+            worker.progress.connect(self.window_.update_console)
             worker.limit.connect(self.run_camera_threads)
         # Step 3: Move worker to the thread
         worker.moveToThread(thread)
@@ -788,13 +619,20 @@ class UI_Threads():
         '''
         This function generates the threads required for running the camera
         '''
-        if self.window_.camera_running_ == False:
-            #Check if the delay stage is connected, if it is move to starting position
-            if self.window_.dly_connected == True:
-                self.window_.dly_position()
-                while (self.window_._dly_start.value()-0.01 < myDLS.TP()[1] < self.window_._dly_start.value()+0.01) != True:
-                    time.sleep(0.001)
-            #self.window_.timer.start(50)
+        if not self.window_.camera_running_:
+            #Check if the delay stage is connected and user is saving data
+            if self.window_.dly_connected and self.window_._save_box.isChecked():
+                start = self.window_._delay_t0.value() - (self.window_._dly_start.value() / 6671.2819)
+                delay_stage.set_position(start)
+                position = delay_stage.get_position()
+                while (start-0.01 < float(position) < start+0.01) != True:
+                    self.window_.update_pb(np.random.randint(0,100))
+                    self.window_.update_console(f'Moving to start position: {round(start,4)}, Current position: {round(position,4)}')
+                    position = delay_stage.get_position()
+                    time.sleep(0.01)
+                self.window_.update_console(f'Finished moving to start position: {position}')
+                self.window_.update_pb(0)
+            self.update_plot_thread()
             #Check if the user is running experimental with analogue or not
             size = 5
             if self.window_._exp_type.currentIndex() == 1: size = 4
@@ -811,12 +649,16 @@ class UI_Threads():
             #Threads 1&2 have been removed due to issues communicating with the PIMMS
             #camera and can be readded once communication is sorted out
             self.window_.threads_ = [self.image_processing_thread(0,size),
-                                 self.image_processing_thread(1)]
+                                    self.image_processing_thread(1)]
             #The objects in self.threads_ are the thread and worker, start the thread
             for thread in self.window_.threads_:
                 thread[0].start()
         else:
-            #self.window_.timer.stop()
+            self.window_.camera_running_ = False
+            #stop the plot update thread
+            self.udpl_worker.stop()
+            self.udpl_thread.quit()
+            self.udpl_thread.wait()
             #When we want to stop a thread we need to tell the worker (index 1) to stop
             for thread in self.window_.threads_:
                 thread[1].stop()
@@ -826,7 +668,6 @@ class UI_Threads():
             self.window_._update_camera_2.setDisabled(False)
             self.window_._camera_connect_button.setDisabled(False)
             self.window_._dly_connect_button.setDisabled(False)
-            self.window_.camera_running_ = False
             self.window_._button.setText("Start")
 
 #########################################################################################
@@ -852,20 +693,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.reset_cml_ = False
         self.error_ = False #Is there an error?
         self.camera_function_ = 0
+        self.ion_count_displayed = 0
         self.ion_counts_ = [np.nan for x in range(50)]
+        self.tof_counts_ = np.zeros(4096)
+        self.image_ = np.zeros((324,324,3))
         self._vthp.setValue(defaults['dac_settings']['vThP'])
         self._vthn.setValue(defaults['dac_settings']['vThN'])
         self._bins.setValue(defaults['ControlSettings']['Mem Reg Read'][0])
-        [self._colourmap.addItem(x) for x in plt.colormaps()] #Add colourmaps
 
         #Call the class responsible for plot drawing and functions
         self.ui_plots = UI_Plots(self)
         #Class the class responsible for handling threads
         self.ui_threads = UI_Threads(self)
-
-        #Update plots on a timer
-        self.timer = QtCore.QTimer()
-        self.timer.timeout.connect(self.updateplots)
 
         '''
         Various commands for buttons found on the ui
@@ -883,7 +722,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self._window_view.currentIndexChanged.connect(self.reset_images)
         self._view.currentIndexChanged.connect(self.reset_images)
         self._rotate_c_2.clicked.connect(self.reset_images)
+
         self._button.clicked.connect(self.ui_threads.run_camera_threads)
+
+        #Update the plots when they are clicked on
+        self._tof_range_min.valueChanged.connect(self.ui_plots.change_axes)
+        self._tof_range_max.valueChanged.connect(self.ui_plots.change_axes)
+        self._min_y.valueChanged.connect(self.ui_plots.change_axes)
+        self._max_y.valueChanged.connect(self.ui_plots.change_axes)
+        self._min_x.valueChanged.connect(self.ui_plots.plot_selection)
+        self._max_x.valueChanged.connect(self.ui_plots.plot_selection)      
 
         #Sometimes while idle the code tries to quit, prevent closing
         quit = QtGui.QAction("Quit", self)
@@ -899,9 +747,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui_threads.pb_thread() #Progress bar for connecting to camera
         self.ui_threads.camera_thread(0)
 
-    def updateplots(self):
-        #self.ionc_.bm.update()
-        pass
+    def update_plots(self):
+        self.ion_count_plot_line.setData(self.ion_counts_)
+        self.tof_plot_line.setData(self.tof_counts_)
+        self.graphics_view_.setImage(self.image_, levels=[0,255])
+        self._ion_count.setText(str(self.ion_count_displayed))
 
     def open_file_dialog(self,option):
         '''Open the window for finding files/directories'''
@@ -944,36 +794,36 @@ class MainWindow(QtWidgets.QMainWindow):
         Capture close events to pop the windows back into the main body
         '''
         if (event.type() == QtCore.QEvent.Type.Close and isinstance(source, QtWidgets.QWidget)):
-            if source.windowTitle() == self._grid_matplotlib.windowTitle():
+            if source.windowTitle() == self._tof_plot.windowTitle():
                 self.tof_expanded_ = False
-                self._grid_matplotlib.setParent(self._tab)
-                self._grid_matplotlib.setGeometry(
-                    self._grid_matplotlib.origpos.x(),
-                    self._grid_matplotlib.origpos.y(),
-                    self._grid_matplotlib.origwidth,
-                    self._grid_matplotlib.origheight
+                self._tof_plot.setParent(self._tab)
+                self._tof_plot.setGeometry(
+                    self._tof_plot.origpos.x(),
+                    self._tof_plot.origpos.y(),
+                    self._tof_plot.origwidth,
+                    self._tof_plot.origheight
                 )
-                self._grid_matplotlib.show()
+                self._tof_plot.show()
             elif source.windowTitle() == self._image_widget.windowTitle():
                 self.img_expanded_ = False
                 self._image_widget.setParent(self._tab)
-                self._image_widget.setGeometry(
-                    self._image_widget.origpos.x(),
-                    self._image_widget.origpos.y(),
-                    self._image_widget.origwidth,
-                    self._image_widget.origheight
-                )
-                self._image_widget.show()
+                # self._image_widget.setGeometry(
+                #     self._image_widget.origpos.x(),
+                #     self._image_widget.origpos.y(),
+                #     self._image_widget.origwidth,
+                #     self._image_widget.origheight
+                # )
+                # self._image_widget.show()
             else:
                 self.ionc_expanded_ = False
-                self._ion_count_matplotlib.setParent(self._tab)
-                self._ion_count_matplotlib.setGeometry(
-                    self._ion_count_matplotlib.origpos.x(),
-                    self._ion_count_matplotlib.origpos.y(),
-                    self._ion_count_matplotlib.origwidth,
-                    self._ion_count_matplotlib.origheight
+                self._ion_count_plot.setParent(self._tab)
+                self._ion_count_plot.setGeometry(
+                    self._ion_count_plot.origpos.x(),
+                    self._ion_count_plot.origpos.y(),
+                    self._ion_count_plot.origwidth,
+                    self._ion_count_plot.origheight
                 )
-                self._ion_count_matplotlib.show()                          
+                self._ion_count_plot.show()                          
             event.ignore() #Ignore close
             return True #Tell qt that process done
         else:
@@ -988,13 +838,14 @@ class MainWindow(QtWidgets.QMainWindow):
         close = close.exec()
 
         if close == QtWidgets.QMessageBox.StandardButton.Yes.value:
+            if self.dly_connected:
+                delay_stage.disconnect_stage()
             #If camera is connected disconnect it before closing
-            if self.connected_ == True:
-                if self.camera_running_ == True:
+            if self.connected_:
+                if self.camera_running_:
                     self.run_camera_threads()
                     time.sleep(0.5) #Sleep between commands or it crashes
                 pymms.close_pimms()
-            self._grid_matplotlib.close() #Close tof widget
             self._image_widget.close()
             event.accept()
         else:
@@ -1019,13 +870,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def update_coms(self):
         '''Updates the available coms on the computer'''
         self._com_ports.clear()
-        ports = serial.tools.list_ports.comports()
-        com_list = []
-        for port, desc, hwid in sorted(ports):
-            if 'PID=104D:3009' in hwid:
-                com_list.append(f"{port}; Delay Stage ; {hwid}")
-            else:
-                com_list.append(f"{port}; {desc} ; {hwid}")
+        com_list = delay_stage.get_com_ports()
         self._com_ports.addItems(com_list)
 
     def dly_control(self):
@@ -1033,27 +878,27 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.dly_connected == False:
             port, name, _ = self._com_ports.currentText().split(';')
             if 'Delay Stage' in name:
-                myDLS.OpenInstrument(port)
-                self._dly_vel.setText(str(myDLS.VA_Get()[1]))
-                self._dly_pos_min.setText(str(myDLS.SL_Get()[1]))
-                self._dly_pos_max.setText(str(myDLS.SR_Get()[1]))
+                delay_stage.connect_stage(port)
+                self._dly_vel.setText(delay_stage.get_velocity())
+                self._dly_pos_min.setText(delay_stage.get_minimum_position())
+                self._dly_pos_max.setText(delay_stage.get_maximum_position())
                 self.dly_connected = True
                 self._dly_connect_button.setText('Disconnect')
                 self.ui_threads.dly_pos_thread()
         else:
             self.ui_threads.dly_worker.stop()
-            myDLS.CloseInstrument()
+            delay_stage.disconnect_stage()
             self._dly_connect_button.setText('Connect')
             self.dly_connected = False
 
     def dly_velocity(self):
         '''Change the velocity of the delay stage'''
-        myDLS.VA_Set(self._dly_vel_set.value()) #Maximum velocity is 300 mm/s
-        self._dly_vel.setText(str(myDLS.VA_Get()[1]))
+        delay_stage.set_velocity(self._dly_vel_set.value())
+        self._dly_vel.setText(delay_stage.get_velocity())
 
     def dly_position(self):
         '''Move delay stage to position specified.'''
-        myDLS.PA_Set(self._dly_start.value())
+        delay_stage.set_position(self._delay_t0.value())
 
     #####################################################################################
     # PIMMS Functions
@@ -1159,15 +1004,8 @@ def except_hook(cls, exception, traceback):
 if __name__ == '__main__':
     sys.excepthook = except_hook
     app = QtWidgets.QApplication(sys.argv)
-
-    #Delay stage dll
-    #This must be imported after QApplication for some reason???
-    import clr #pip install pythonnet, NOT clr
-    file_name = 'Newport.DLS.CommandInterfaceDLS'
-    sys.path.append(fd)
-    clr.AddReference(file_name)
-    from CommandInterfaceDLS import DLS
-    myDLS = DLS() #DLS is imported from CommandInterfaceDLS
+    #Call the class for your respective delay stage
+    delay_stage = newport_delay_stage(fd)
 
     #Create window
     w = MainWindow()
