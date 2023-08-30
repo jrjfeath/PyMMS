@@ -1805,6 +1805,49 @@ Please connect to camera.</string>
        <number>10</number>
       </property>
      </widget>
+     <widget class="QWidget" name="verticalLayoutWidget">
+      <property name="geometry">
+       <rect>
+        <x>70</x>
+        <y>720</y>
+        <width>160</width>
+        <height>102</height>
+       </rect>
+      </property>
+      <layout class="QVBoxLayout" name="verticalLayout">
+       <item>
+        <widget class="QLabel" name="label_35">
+         <property name="text">
+          <string>Pop-Out Plots!</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="_pop_tof">
+         <property name="text">
+          <string>ToF Spectrum</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="_pop_ion_count">
+         <property name="text">
+          <string>Ion Count Spectrum</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="_pop_image">
+         <property name="text">
+          <string>Image</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
     </widget>
     <widget class="QWidget" name="_tab_2">
      <attribute name="title">

@@ -14,13 +14,14 @@ import time
 #Pythonnet clr library is imported at bottom of file in __main__
 #this library conflicts with PyQt if loaded before mainwindow
 import h5py
+import matplotlib.pyplot as plt
 import numpy as np
 import pyqtgraph as pg
 import yaml
 import warnings
 from PyQt6 import uic, QtWidgets, QtCore, QtGui
 #Functions to import that relate to PIMMS ideflex.dll
-from PyMMS_Functions import pymms
+from PyMMS_Functions_Spoof import pymms
 #Import the newport class function
 from Delay_Stage import newport_delay_stage
 #Supress numpy divide and cast warnings
@@ -337,7 +338,7 @@ class UI_Plots():
         self.window_._image_widget.setWindowTitle('Readout')
         self.window_._image_widget.installEventFilter(self.window_)
         self.grid = QtWidgets.QGridLayout(self.window_._image_widget)
-        self.window_.graphics_view_ = pg.RawImageWidget(self.window_._image_widget)
+        self.window_.graphics_view_ = pg.RawImageWidget(self.window_._image_widget,scaled=True)
         self.grid.addWidget(self.window_.graphics_view_, 0, 0, 1, 1)
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
         sizePolicy.setHorizontalStretch(0)
@@ -352,6 +353,7 @@ class UI_Plots():
         self.window_.tof_plot_line = self.window_._tof_plot.plot(self.window_.ion_counts_,pen=pg.mkPen(color=(255, 0, 0)))
         self.window_.tof_selection_line_min = self.window_._tof_plot.plot(self.window_.ion_counts_,pen=pg.mkPen(color=(0, 0, 0)))
         self.window_.tof_selection_line_max = self.window_._tof_plot.plot(self.window_.ion_counts_,pen=pg.mkPen(color=(0, 0, 0)))
+        self.window_._tof_plot.setWindowTitle('ToF Spectrum')
         self.window_._tof_plot.setBackground('w')
         self.window_._tof_plot.installEventFilter(self.window_)
         
@@ -359,6 +361,7 @@ class UI_Plots():
         self.window_.ion_count_plot_origwidth = self.window_._ion_count_plot.width()
         self.window_.ion_count_plot_origheight = self.window_._ion_count_plot.height()
         self.window_.ion_count_plot_line = self.window_._ion_count_plot.plot(self.window_.ion_counts_,pen=pg.mkPen(color=(255, 0, 0)))
+        self.window_._ion_count_plot.setWindowTitle('Ion Count Spectrum')
         self.window_._ion_count_plot.setBackground('w')
         self.window_._ion_count_plot.installEventFilter(self.window_)
 
@@ -731,7 +734,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._min_y.valueChanged.connect(self.ui_plots.change_axes)
         self._max_y.valueChanged.connect(self.ui_plots.change_axes)
         self._min_x.valueChanged.connect(self.ui_plots.plot_selection)
-        self._max_x.valueChanged.connect(self.ui_plots.plot_selection)      
+        self._max_x.valueChanged.connect(self.ui_plots.plot_selection)
+        self._pop_tof.clicked.connect(lambda: self.ui_plots.pop_out_window(0))
+        self._pop_ion_count.clicked.connect(lambda: self.ui_plots.pop_out_window(2))
+        self._pop_image.clicked.connect(lambda: self.ui_plots.pop_out_window(1))
 
         #Sometimes while idle the code tries to quit, prevent closing
         quit = QtGui.QAction("Quit", self)
@@ -798,30 +804,30 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.tof_expanded_ = False
                 self._tof_plot.setParent(self._tab)
                 self._tof_plot.setGeometry(
-                    self._tof_plot.origpos.x(),
-                    self._tof_plot.origpos.y(),
-                    self._tof_plot.origwidth,
-                    self._tof_plot.origheight
+                    self.tof_plot_origpos.x(),
+                    self.tof_plot_origpos.y(),
+                    self.tof_plot_origwidth,
+                    self.tof_plot_origheight
                 )
                 self._tof_plot.show()
             elif source.windowTitle() == self._image_widget.windowTitle():
                 self.img_expanded_ = False
                 self._image_widget.setParent(self._tab)
-                # self._image_widget.setGeometry(
-                #     self._image_widget.origpos.x(),
-                #     self._image_widget.origpos.y(),
-                #     self._image_widget.origwidth,
-                #     self._image_widget.origheight
-                # )
-                # self._image_widget.show()
+                self._image_widget.setGeometry(
+                    self.image_widget_origpos.x(),
+                    self.image_widget_origpos.y(),
+                    self.image_widget_origwidth,
+                    self.image_widget_origheight
+                )
+                self._image_widget.show()
             else:
                 self.ionc_expanded_ = False
                 self._ion_count_plot.setParent(self._tab)
                 self._ion_count_plot.setGeometry(
-                    self._ion_count_plot.origpos.x(),
-                    self._ion_count_plot.origpos.y(),
-                    self._ion_count_plot.origwidth,
-                    self._ion_count_plot.origheight
+                    self.ion_count_plot_origpos.x(),
+                    self.ion_count_plot_origpos.y(),
+                    self.ion_count_plot_origwidth,
+                    self.ion_count_plot_origheight
                 )
                 self._ion_count_plot.show()                          
             event.ignore() #Ignore close
