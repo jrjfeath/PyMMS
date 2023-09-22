@@ -299,7 +299,13 @@ class run_camera(QtCore.QObject):
                     image[image > (self.window_._vmax.value()*0.01)] = 0
                     image = ((image / np.max(image)))
 
-                self.window_.image_ = np.array(image * 255,dtype=np.uint8)
+                #self.window_.image_ = np.array(image * 255,dtype=np.uint8)
+                colourmap = self.window_._colourmap.currentText()
+                if colourmap != "None": 
+                    cm = pg.colormap.get(colourmap,source="matplotlib")
+                    self.window_.image_ = cm.map(image)
+                else:
+                    self.window_.image_ = np.array(image * 255, dtype=np.uint8)
 
                 #Update image canvas
                 cml_number+=1
@@ -346,6 +352,7 @@ class UI_Plots():
         sizePolicy.setHeightForWidth(self.window_.graphics_view_.sizePolicy().hasHeightForWidth())
         self.window_.graphics_view_.setSizePolicy(sizePolicy)
         self.window_.graphics_view_.setImage(self.window_.image_, levels=[0,255])
+        
 
         self.window_.tof_plot_origpos = self.window_._tof_plot.pos()
         self.window_.tof_plot_origwidth = self.window_._tof_plot.width()
@@ -625,12 +632,13 @@ class UI_Threads():
         if not self.window_.camera_running_:
             #Check if the delay stage is connected and user is saving data
             if self.window_.dly_connected and self.window_._save_box.isChecked():
-                start = self.window_._delay_t0.value() - (self.window_._dly_start.value() / 6671.2819)
+                start = self.window_._delay_t0.value() + (self.window_._dly_start.value() / 6671.2819)
                 delay_stage.set_position(start)
                 position = delay_stage.get_position()
                 while (start-0.01 < float(position) < start+0.01) != True:
                     self.window_.update_pb(np.random.randint(0,100))
-                    self.window_.update_console(f'Moving to start position: {round(start,4)}, Current position: {round(position,4)}')
+                    try: self.window_.update_console(f'Moving to start position: {round(start,4)}, Current position: {round(position,4)}')
+                    except TypeError: print(start,position)
                     position = delay_stage.get_position()
                     time.sleep(0.01)
                 self.window_.update_console(f'Finished moving to start position: {position}')
@@ -683,6 +691,10 @@ class MainWindow(QtWidgets.QMainWindow):
         #Load the ui file
         uic.loadUi(uifp,self)
 
+        #Add colourmaps
+        colourmaps = pg.colormap.listMaps("matplotlib")
+        self._colourmap.addItems(colourmaps)
+
         #Make some UI variables
         self.threads_ = []
         self.rotation_ = 0 # Rotation angle of the image
@@ -699,7 +711,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ion_count_displayed = 0
         self.ion_counts_ = [np.nan for x in range(50)]
         self.tof_counts_ = np.zeros(4096)
-        self.image_ = np.zeros((324,324,3))
+        self.image_ = np.zeros((324,324))
         self._vthp.setValue(defaults['dac_settings']['vThP'])
         self._vthn.setValue(defaults['dac_settings']['vThN'])
         self._bins.setValue(defaults['ControlSettings']['Mem Reg Read'][0])
