@@ -95,7 +95,7 @@ class run_camera(QtCore.QObject):
         tof_data = []
         for id, reg in enumerate(mem_regs):
             Y,X = np.nonzero(reg)
-            ToF = reg[Y,X]
+            ToF = np.nan_to_num(reg[Y,X]) # Replace any nan values with 0
             ids = np.full((ToF.shape),id)
             #These are arrays that are flat, we want to stack them and then transpose
             st = np.transpose(np.vstack((X,Y,ToF,ids)))
@@ -363,6 +363,8 @@ class UI_Plots():
         self.window_._tof_plot.setWindowTitle('ToF Spectrum')
         self.window_._tof_plot.setBackground('w')
         self.window_._tof_plot.installEventFilter(self.window_)
+        self.window_._tof_plot.setLabel('bottom', "Time Bin")
+        self.window_._tof_plot.setLabel('left', "Counts")
         
         self.window_.ion_count_plot_origpos = self.window_._ion_count_plot.pos()
         self.window_.ion_count_plot_origwidth = self.window_._ion_count_plot.width()
@@ -371,6 +373,8 @@ class UI_Plots():
         self.window_._ion_count_plot.setWindowTitle('Ion Count Spectrum')
         self.window_._ion_count_plot.setBackground('w')
         self.window_._ion_count_plot.installEventFilter(self.window_)
+        self.window_._ion_count_plot.setLabel('bottom', "Number of Frames")
+        self.window_._ion_count_plot.setLabel('left', "Total Ion Count")
 
         self.change_axes()
 
@@ -709,7 +713,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.error_ = False #Is there an error?
         self.camera_function_ = 0
         self.ion_count_displayed = 0
-        self.ion_counts_ = [np.nan for x in range(50)]
+        self.ion_counts_ = [np.nan for x in range(self._nofs.value())]
         self.tof_counts_ = np.zeros(4096)
         self.image_ = np.zeros((324,324))
         self._vthp.setValue(defaults['dac_settings']['vThP'])
@@ -741,6 +745,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._button.clicked.connect(self.ui_threads.run_camera_threads)
 
         #Update the plots when they are clicked on
+        self._nofs.valueChanged.connect(self.update_nofs)
         self._tof_range_min.valueChanged.connect(self.ui_plots.change_axes)
         self._tof_range_max.valueChanged.connect(self.ui_plots.change_axes)
         self._min_y.valueChanged.connect(self.ui_plots.change_axes)
@@ -764,6 +769,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.ui_threads.pb_thread() #Progress bar for connecting to camera
         self.ui_threads.camera_thread(0)
+
+    def update_nofs(self):
+        self.ion_counts_ = [np.nan for x in range(self._nofs.value())]
+        self.ion_count_plot_line.setData(self.ion_counts_)
 
     def update_plots(self):
         self.ion_count_plot_line.setData(self.ion_counts_)

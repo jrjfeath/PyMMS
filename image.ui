@@ -1547,7 +1547,7 @@ Please connect to camera.</string>
        <item row="4" column="0">
         <widget class="QLabel" name="label_14">
          <property name="text">
-          <string>Camera output</string>
+          <string>Camera Output</string>
          </property>
         </widget>
        </item>
@@ -1568,7 +1568,7 @@ Please connect to camera.</string>
        <item row="3" column="0">
         <widget class="QLabel" name="label_16">
          <property name="text">
-          <string>Memory registers</string>
+          <string>Memory Registers</string>
          </property>
         </widget>
        </item>
@@ -1684,19 +1684,6 @@ Please connect to camera.</string>
        </rect>
       </property>
       <layout class="QGridLayout" name="gridLayout_10">
-       <item row="0" column="2">
-        <widget class="QSpinBox" name="_max_y">
-         <property name="minimum">
-          <number>1</number>
-         </property>
-         <property name="maximum">
-          <number>100000</number>
-         </property>
-         <property name="value">
-          <number>100</number>
-         </property>
-        </widget>
-       </item>
        <item row="0" column="1">
         <widget class="QSpinBox" name="_min_y">
          <property name="maximum">
@@ -1707,24 +1694,16 @@ Please connect to camera.</string>
          </property>
         </widget>
        </item>
-       <item row="1" column="0">
-        <widget class="QLabel" name="label_24">
-         <property name="text">
-          <string>ToF Range</string>
+       <item row="0" column="2">
+        <widget class="QSpinBox" name="_max_y">
+         <property name="minimum">
+          <number>1</number>
          </property>
-        </widget>
-       </item>
-       <item row="0" column="0">
-        <widget class="QLabel" name="label_22">
-         <property name="text">
-          <string>ToF Intensity</string>
+         <property name="maximum">
+          <number>100000</number>
          </property>
-        </widget>
-       </item>
-       <item row="2" column="0">
-        <widget class="QLabel" name="label_26">
-         <property name="text">
-          <string>ToF Selection</string>
+         <property name="value">
+          <number>100</number>
          </property>
         </widget>
        </item>
@@ -1751,6 +1730,27 @@ Please connect to camera.</string>
          </property>
         </widget>
        </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="label_24">
+         <property name="text">
+          <string>ToF Range</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="0">
+        <widget class="QLabel" name="label_22">
+         <property name="text">
+          <string>ToF Intensity</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="0">
+        <widget class="QLabel" name="label_26">
+         <property name="text">
+          <string>ToF Selection</string>
+         </property>
+        </widget>
+       </item>
        <item row="1" column="1">
         <widget class="QSpinBox" name="_tof_range_min">
          <property name="maximum">
@@ -1765,6 +1765,26 @@ Please connect to camera.</string>
          </property>
          <property name="value">
           <number>4095</number>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="0" colspan="2">
+        <widget class="QLabel" name="label_36">
+         <property name="text">
+          <string>Number of Ion Count Frames Shown</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="2">
+        <widget class="QSpinBox" name="_nofs">
+         <property name="minimum">
+          <number>10</number>
+         </property>
+         <property name="maximum">
+          <number>1000</number>
+         </property>
+         <property name="value">
+          <number>50</number>
          </property>
         </widget>
        </item>
@@ -1809,7 +1829,7 @@ Please connect to camera.</string>
       <property name="geometry">
        <rect>
         <x>70</x>
-        <y>720</y>
+        <y>730</y>
         <width>160</width>
         <height>102</height>
        </rect>
