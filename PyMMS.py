@@ -291,6 +291,8 @@ class run_camera(QtCore.QObject):
                     image[image < self.window_._min_x.value()] = 0
                 image = ((image / np.max(image)))
                 image = np.rot90(image, self.window_.rotation_)
+                #If no ions in shot
+                if np.isnan(np.sum(image)): image = np.zeros((324,324))
 
                 if self.window_._view.currentIndex() == 1:
                     cml_image = ((cml_image  * (cml_number - 1)) / cml_number) + (image / cml_number)
