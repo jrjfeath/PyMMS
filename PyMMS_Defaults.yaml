@@ -98,7 +98,7 @@ OperationModes:
 ControlSettings:
     #Hardware description : Value, FPGA Register No. List
     #Some values are split into Hi and Lo bits for the camera
-    Cycles Per Time Code : [7, [13]]
+    Cycles Per Time Code : [8, [13]]
     Total Columns : [324, [10, 9]]
     Total Rows : [324, [4,3]]
     Rows In Frame : [324, [2,1]]

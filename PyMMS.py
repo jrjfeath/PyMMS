@@ -21,7 +21,7 @@ import yaml
 import warnings
 from PyQt6 import uic, QtWidgets, QtCore, QtGui
 #Functions to import that relate to PIMMS ideflex.dll
-from PyMMS_Functions_Spoof import pymms
+from PyMMS_Functions import pymms
 #Import the newport class function
 from Delay_Stage import newport_delay_stage
 #Supress numpy divide and cast warnings
@@ -94,7 +94,10 @@ class run_camera(QtCore.QObject):
         #Skip analogue array if it exists
         tof_data = []
         for id, reg in enumerate(mem_regs):
-            Y,X = np.nonzero(reg)
+            try: Y,X = np.nonzero(reg)
+            except ValueError:
+                print(len(reg))
+                return tof_data
             ToF = np.nan_to_num(reg[Y,X]) # Replace any nan values with 0
             ids = np.full((ToF.shape),id)
             #These are arrays that are flat, we want to stack them and then transpose
@@ -198,7 +201,6 @@ class run_camera(QtCore.QObject):
             if shot_number >= self.window_._n_of_frames.value() and self.window_._n_of_frames.value() != 0 and self.window_._save_box.isChecked() and not stopped:
                 self.window_._frame_count.setText(f'{shot_number}')
                 stopped = True
-                shot_number = 0
                 self.limit.emit()
 
             #If queue is empty the program will crash if you try to check it
@@ -242,6 +244,7 @@ class run_camera(QtCore.QObject):
                 else:
                     tof_data = self.extract_tof_data(images)
                     img_index-=1 #There is no analogue image here so remove one index
+                if len(tof_data) < 4 : continue
 
                 frm_image.append(np.vstack(tof_data))
                 frm_image.append(np.zeros((4,),dtype=np.int16))
@@ -312,6 +315,7 @@ class run_camera(QtCore.QObject):
 
         if self.window_._save_box.isChecked():
             self.save_data(filename,frm_image,shot_number,pos_data)
+            shot_number = 0
 
         self.finished.emit()
         print('Camera stopping.')

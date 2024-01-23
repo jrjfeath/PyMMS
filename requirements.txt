@@ -1,0 +1,7 @@
+h5py
+matplotlib
+pyqt6
+pyqtgraph
+pyyaml
+pyserial
+pythonnet
