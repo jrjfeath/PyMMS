@@ -772,6 +772,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._dly_connect_button.clicked.connect(self.dly_control)
         self._dly_send_to.clicked.connect(self.dly_position)
         self._dly_vel_but.clicked.connect(self.dly_velocity)
+        if not delay_stage.dls_files_present:
+            self._dly_connect_button.setEnabled(False)
 
         self.ui_threads.pb_thread() #Progress bar for connecting to camera
         self.ui_threads.camera_thread(0)
