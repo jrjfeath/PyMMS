@@ -4,6 +4,7 @@ If a new class is added make sure to follow the function calls, see newport clas
 '''
 import sys
 import serial.tools.list_ports #pyserial
+import os
 
 #########################################################################################
 # Class used for communicating with the Newport delay stage
@@ -17,13 +18,18 @@ class newport_delay_stage():
     '''
 
     def __init__(self,directory,hardware_id='PID=104D:3009',filename='Newport.DLS.CommandInterfaceDLS'):
-        self.hardware_id = hardware_id
-        import clr #pythonnet
-        #Load in newport c++ library
-        sys.path.append(directory)
-        clr.AddReference(filename)
-        from CommandInterfaceDLS import DLS
-        self.myDLS = DLS()
+        if os.path.isfile(filename):
+            self.hardware_id = hardware_id
+            import clr #pythonnet
+            #Load in newport c++ library
+            sys.path.append(directory)
+            clr.AddReference(filename)
+            from CommandInterfaceDLS import DLS
+            self.myDLS = DLS()
+            self.dls_files_present = True
+        else:
+            self.dls_files_present = False
+            print('Warning: delay stage control software not present.')
 
     def get_com_ports(self):
         '''
@@ -34,11 +40,12 @@ class newport_delay_stage():
         '''
         ports = serial.tools.list_ports.comports()
         com_list = []
-        for port, desc, hwid in sorted(ports):
-            if self.hardware_id in hwid:
-                com_list.append(f"{port}; Delay Stage ; {hwid}")
-            else:
-                com_list.append(f"{port}; {desc} ; {hwid}")
+        if self.dls_files_present:
+            for port, desc, hwid in sorted(ports):
+                if self.hardware_id in hwid:
+                    com_list.append(f"{port}; Delay Stage ; {hwid}")
+                else:
+                    com_list.append(f"{port}; {desc} ; {hwid}")
         return com_list
 
     def connect_stage(self,value):
