@@ -68,6 +68,16 @@ HardwareInitialization:
     ResetAllUsbFifo : [02 84 0D, 3]
     ResetUsbController : [02 00 0D, 0, 100]
 
+HardwareInitializationGen2:
+    # <Description> = <ConfigurationString(Hex)>; <ResponseByteCount(Dec)>; <WaitStateAfter(Dec)(ms)>
+    SystemInitialize : [23 C0 E3 0D, 0, 1000]
+    SetLevelShifterDir : [23 C0 B2 30 30 46 38 0D, 0, 50]
+    EnLevelShifter1 : [23 C0 40 46 43 46 46 0D, 0, 50]
+    EnLevelShifter2 : [23 C0 40 46 44 46 46 0D, 0, 50]
+    EnLevelShifter3 : [23 C0 40 46 45 46 46 0D, 0, 50]
+    SetADCPhase : [23 C0 53 31 36 30 36 0D, 0, 50]
+    SetADCSyncDelay : [23 C0 40 41 31 30 38 0D, 0, 50]
+
 SubRoutines: 
     #
     # <SubRoutineName> = <SubRoutineAddress>, <RegisterNumberNextSubRoutine>
