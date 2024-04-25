@@ -360,7 +360,7 @@ class pymms():
 
         self.idflex.message = 'Updated camera view.'
 
-    def start_up_pimms(self,trim_file="",function=0,trigger=0,rows=5) -> None:
+    def start_up_pimms(self,trim_file="",function=0,trigger=0) -> None:
         '''
         This function sends the updated DAC and start-up commands to PIMMS.
 
@@ -389,7 +389,7 @@ class pymms():
         # Generate an empty trim array
         trim = TrimData.write_trim(value=0)
         if (os.path.isfile(trim_file) & trim_file.endswith('.bin')):
-            trim = TrimData.read_trim(trim_file)
+            trim = TrimData.read_binary_trim(trim_file)
         if (os.path.isfile(trim_file) & trim_file.endswith('.csv')):
             trim = TrimData.write_trim(filename=trim_file)
         

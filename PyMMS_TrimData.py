@@ -12,17 +12,25 @@ class TrimData():
         file_arr = np.fromfile(filename,dtype=np.uint8)
         return file_arr
     
-    def write_trim(filename=None,cols=324,rows=324,value=0) -> np.ndarray:
+    def write_trim(filename=None,cols=324,rows=324,value=15,iteration=0,calibration=False) -> np.ndarray:
         '''
         This function generates a calibration string for PIMMS2 either using a text file
         or through manual generation. If no filename is specified the entire calibration
         will default to the specified value (0) unless another is specified.
         '''
-        #If the trim data is stored in csv format
+        # Create an array for controlling the pixel mask, 1 is off, 0 is on
+        pixels_enabled = np.zeros((rows,cols), dtype=int)
+        # If the trim data is stored in csv format
         if filename:
             arr = np.fromfile(filename,dtype=np.uint8)
         else:
-            arr = np.full((cols, rows),value, dtype='>i')
+            arr = np.full((rows,cols),value, dtype='>i')
+            # When calibrating only set values for every 9th pixel and disable all other pixels
+            # See Jason Lee's PhD thesis page 94 onwards on power droop
+            if calibration:
+                row, col = iteration // 9, iteration % 9
+                pixels_enabled = np.ones((rows,cols), dtype=int)
+                pixels_enabled[row::9, col::9] = 0
 
         file_arr = np.zeros((1,math.ceil((cols*rows*5)/8)),dtype=np.uint8)[0]
 
@@ -44,11 +52,9 @@ class TrimData():
         for a in range(cols-1,-1,-1):
             for b in range(5):
                 for c in range(rows-1,-1,-1):
-                    if b == 4:
-                        i += 1
-                        continue
                     q, r = divmod(i, 8)
                     v = 2**(7-r)
-                    file_arr[q] += (ba[arr[c,a]][b] * v)
+                    if b == 4: file_arr[q] += (pixels_enabled[c,a] * v) # Pixel mask
+                    else: file_arr[q] += (ba[arr[c,a]][b] * v) # trim value
                     i += 1
         return file_arr
