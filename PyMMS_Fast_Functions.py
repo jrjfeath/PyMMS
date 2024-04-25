@@ -208,7 +208,7 @@ class idflexusb():
         self.message = f'Disconnected device: {ret}'
         print(self.message)
 
-    def writeread_device(self,data,bytestoread,port=0,timeout=1000,sleep=0.05) -> None:
+    def writeread_device(self,data,bytestoread=0,port=0,timeout=1000,sleep=0.02) -> None:
         '''
         Write data to the PIMMS camera.
         Format: data [string], byte size [int], port [int], Timeout(ms) [int]
@@ -470,7 +470,7 @@ class pymms():
         if self.idflex.error != 0: return 
 
         #Obtain the hardware settings for the PIMMS (hex -> binary), decode("latin-1") for str
-        for name, details in self.settings['HardwareInitializationGen2'].items():
+        for _, details in self.settings['HardwareInitializationGen2'].items():
             byte = (bytes.fromhex(details[0])).decode('latin-1')
             self.idflex.writeread_device(byte,details[1],timeout=details[2])
             if self.idflex.error != 0: return 
@@ -490,7 +490,7 @@ class pymms():
         #If all connection commands successful return 0
         self.idflex.message = f'Connected to PIMMS!'
     
-    def send_trim_to_pimms(self,trim) -> None:
+    def send_trim_to_pimms(self,trim : np.ndarray) -> None:
         '''
         Sends trim data to camera.
         '''
@@ -556,11 +556,12 @@ class pymms():
 
         #After these commands are sent we now send the trim file to PIMMS
         # Generate an empty trim array
-        trim = TrimData.write_trim(value=0)
         if (os.path.isfile(trim_file) & trim_file.endswith('.bin')):
-            trim = TrimData.read_trim(trim_file)
-        if (os.path.isfile(trim_file) & trim_file.endswith('.csv')):
+            trim = TrimData.read_binary_trim(trim_file)
+        elif (os.path.isfile(trim_file) & trim_file.endswith('.csv')):
             trim = TrimData.write_trim(filename=trim_file)
+        else:
+            trim = TrimData.write_trim()
         
         self.send_trim_to_pimms(trim)
         if self.idflex.error != 0: return 
@@ -570,3 +571,21 @@ class pymms():
 
         #If all DAC setting and startup commands successful
         self.idflex.message = f'Updated PIMMS DACs, trim, and readout!'
+
+    def calibrate_pimms(self,update_voltage=False,update_readout=False,vThN=450,vThP=450,value=15,iteration=0) -> None:
+        '''
+        This function controls calibration of the camera, updating the pixel mask and trim values. 
+        
+        It can optionally select experiment mode and update the voltages if required.
+        '''
+        # Update with new threshold values
+        if update_voltage:
+            self.settings['dac_settings']['vThN'] = vThN
+            self.settings['dac_settings']['vThP'] = vThP
+            self.dac_settings()
+        # Experimental Mode, no trigger, 4 bins
+        if update_readout:
+            self.send_output_types(1,0,4)
+        # Write trim data
+        trim = TrimData.write_trim(value=value,iteration=iteration,calibration=True)
+        self.send_trim_to_pimms(trim)
