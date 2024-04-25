@@ -1,5 +1,6 @@
 import math
 import numpy as np
+import time
 
 class TrimData():
     '''
@@ -32,29 +33,36 @@ class TrimData():
                 pixels_enabled = np.ones((rows,cols), dtype=int)
                 pixels_enabled[row::9, col::9] = 0
 
-        file_arr = np.zeros((1,math.ceil((cols*rows*5)/8)),dtype=np.uint8)[0]
+        # Create the trim array, each index represents a byte, every 5 bits
+        # corresponds to a pixel.
+        file_arr = np.zeros((math.ceil((cols*rows*5)/8)),dtype=np.uint8)
 
-        #A function to convert 0-15 into a boolean list
-        def int_to_bool_list(num):
-            return [bool(num & (1<<n)) for n in range(4)]
-
-        #A dictionary containing the boolean lists for 0-15 to reduce runtime
-        ba = {}
+        # Convert the array of trim integer values into an array of bit values.
+        # 0 = [False, False, False, False], 15 = [True, True, True, True]
+        boolean_array = np.empty((rows, cols, 4), dtype=object)
         for i in range(16):
-            ba[i] = int_to_bool_list(i)
+            boolean_array[arr==i] = [bool(i & (1<<n)) for n in range(4)]
 
-        #Generating the trim is a fairly convoluted process
-        #First the loop starts with the last column and last row going backwards to 0,0
-        #Confusingly we investigate the first index of the boolean array of each row
-        #before we continue onto the next index.
-        #Every time i increments by 8 we move an index in the file_array
-        i = 0
-        for a in range(cols-1,-1,-1):
-            for b in range(5):
-                for c in range(rows-1,-1,-1):
-                    q, r = divmod(i, 8)
-                    v = 2**(7-r)
-                    if b == 4: file_arr[q] += (pixels_enabled[c,a] * v) # Pixel mask
-                    else: file_arr[q] += (ba[arr[c,a]][b] * v) # trim value
-                    i += 1
+        # Flatten (cols * rows) arrays and reverse the order, pimms reads from bottom right to top left
+        pixels_enabled = pixels_enabled.flatten()[::-1]
+        boolean_array = np.array(boolean_array.flatten()[::-1],dtype=int)
+        
+        # Calculate the values of 2^n
+        powers_of_two = [2**(7-x) for x in range(8)]
+        # Calculate the quotient and the remainder for the total number of iterations
+        ql = [x // 8 for x in range(cols * rows * 5)]
+        rl = [x % 8 for x in range(cols * rows * 5)]
+        # Calculate the power multiplier for each remainder (128,64,32,16,8,4,2,1)
+        pl = [powers_of_two[x] for x in rl]
+        # The trim bits corresponds to the data every x * 5 * rows (i.e 0 to 1296 for 324*324)
+        trim_indices = np.array([ql[x*rows*5:(x+1)*5*rows-rows] for x in range(0,cols)]).flatten()
+        trim_values = np.array([pl[x*rows*5:(x+1)*5*rows-rows] for x in range(0,cols)]).flatten()
+        trim_values *= boolean_array
+        np.add.at(file_arr,trim_indices,trim_values)
+        # The pixel mask bit corresponds to the data every x * 4 * rows (i.e 1296 to 1620 for 324*324)
+        pixel_mask_indices = np.array([ql[x*5*rows-rows:x*5*rows] for x in range(1,cols+1)]).flatten()
+        pixel_mask_values  = np.array([pl[x*5*rows-rows:x*5*rows] for x in range(1,cols+1)]).flatten()
+        pixel_mask_values *= pixels_enabled
+        np.add.at(file_arr,pixel_mask_indices ,pixel_mask_values)
+
         return file_arr
