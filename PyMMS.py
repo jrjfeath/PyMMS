@@ -6,7 +6,9 @@
 #####################################################################################
 
 #Native python library imports
+import datetime
 import os
+import pathlib
 import queue
 import sys
 import time
@@ -225,6 +227,15 @@ class RunCameraThread(QtCore.QThread):
                 images = self.image_queue.get_nowait()
                 if images.shape[0] != (self.bins + self.analogue) : continue
 
+                if self.calibration:
+                    temp = np.zeros((images.shape),dtype=int)
+                    temp[images != 0] = 1
+                    self.calibration_array = np.add(self.calibration_array,temp)
+                    self.cml_number+=1
+                    self.shot_number+=1
+                    self.fps+=1
+                    continue
+
                 # Check if the user is saving delay position data
                 if self.delay_connected:
                     self.delay_stage_position()
@@ -282,6 +293,7 @@ class RunCameraThread(QtCore.QThread):
                         if self.analogue: image = images[1:][img_index]
                         else: image = images[img_index]
                     except IndexError: image = np.zeros((324,324))
+
                 #Remove any ToF outside of range
                 image[image > self.window_._max_x.value()] = 0
                 image[image < self.window_._min_x.value()] = 0
@@ -307,10 +319,6 @@ class RunCameraThread(QtCore.QThread):
                     self.window_.image_ = cm.map(image)
                 else:
                     self.window_.image_ = np.array(image * 255, dtype=np.uint8)
-
-                if self.calibration:
-                    images[images != 0] = 1
-                    self.calibration_array = np.add(self.calibration_array,images)
 
                 #Update image canvas
                 self.cml_number+=1
@@ -339,57 +347,98 @@ class CameraCalibrationThread(QtCore.QThread):
     '''
     Function for calibrating the camera.
     '''
-    progress = QtCore.pyqtSignal(int)
     take_images = QtCore.pyqtSignal()
     finished = QtCore.pyqtSignal()
     def __init__(self, parent=None) -> None:
         QtCore.QThread.__init__(self, parent)
         self.trim_value = parent._cal_trim.value()
         self.running = True
+        self.initial = parent._cal_vthp.value()
+        self.end = parent._cal_vthp_stop.value()
+        self.inc = parent._cal_inc.value()
+        self.current = 0
+        self.static = parent._cal_static.isChecked()
+        self.directory = parent._file_dir_2.text()
         self.window_ = parent
 
+    def create_filename(self) -> None:
+        '''
+        As the calibration runs files are created to store the data.\n
+        Ensure the user specified file is valid and dont overwrite existing files.
+        '''
+        # The user may try writing to somewhere they shouldn't
+        if os.access(self.directory, os.W_OK) is not True:
+            print('Invalid directory, writing to Documents')
+            self.directory = str(pathlib.Path.home() / 'Documents')
+
         #Create a filename for saving data
-        filename = f'{os.path.join(parent._file_dir_2.text())}/Calibration'
+        filename = f'{os.path.join(self.directory)}/P{self.current}_N{self.window_._cal_vthn.value()}'
+        if self.static: filename += '_static'
         filename += '_0000.csv'
         #Check if file already exists so you dont overwrite data
         fid = 1
         while os.path.exists(filename):
-            filename = f'{filename[:-8]}_{fid:04d}.csv'
+            filename = f'{filename[:-9]}_{fid:04d}.csv'
             fid+=1
         self.filename = filename
     
     def run(self) -> None:
         number_of_runs = (self.trim_value+1) * 81
-        counter = 0
-        current = 0.00
-        calibration = np.zeros((16,4,324,324)) # Calibration Array
-        # Value generally starts at 15 and iterates until 0
-        for v in range(self.trim_value, -1, -1):
+        if self.static: number_of_runs = 81
+        # Set the start and stop labels
+        self.window_._cal_start_l.setText(f'{self.initial}')
+        self.window_._cal_end_l.setText(f'{self.end}')
+        for vthp in range(self.initial, self.end+self.inc, self.inc):
             if not self.running: break
-            # We need to scan 324*324 pixels in steps of 9 pixels, thus 81 steps
-            for i in range(0, 81):
+            self.current = vthp
+            self.create_filename()
+            # Before calibration set VthP and VthN
+            self.window_.pymms.calibrate_pimms(
+                update=True,
+                vThN=self.window_._cal_vthn.value(),
+                vThP=vthp,
+            )
+            # Update the current voltage label
+            self.window_._self_cur_l.setText(f'{vthp}')
+            counter = 0
+            current = 0.00
+            calibration = np.zeros((16,4,324,324)) # Calibration Array
+            start = time.time()
+            # Value generally starts at 15 and iterates until 0
+            for v in range(self.trim_value, -1, -1):
+                if self.static and self.trim_value != v: break
                 if not self.running: break
-                self.window_.pymms.calibrate_pimms(value=v,iteration=i)
-                # Tell the acquisition to begin
-                if self.running: self.take_images.emit()
-                # On the first instance Images thread may not exist
-                while 'Images' not in self.window_.threads_ and self.running:
-                    time.sleep(0.01)
-                # Check to see if thread is running
-                while not self.window_.threads_['Images'].running and self.running:
-                    time.sleep(0.01)
-                # Check to see if the thread has completed
-                while self.window_.threads_['Images'].running and self.running:
-                    time.sleep(0.01)
-                # Write data to the calibration array
-                calibration[v] = np.add(calibration[v],self.window_.calibration_array_)
-                # Update the progress bar for how far along the process is
-                percent_complete = np.floor((counter/number_of_runs) * 100)
-                if percent_complete > current:
-                    current = percent_complete
-                    self.progress.emit(int(percent_complete))
-                counter+=1
-        self.progress.emit(0)
+                # We need to scan 324*324 pixels in steps of 9 pixels, thus 81 steps
+                for i in range(0, 81):
+                    if not self.running: break
+                    print(f'Value, Run: {v, i}\n\n')
+                    self.window_.pymms.calibrate_pimms(value=v,iteration=i)
+                    time.sleep(0.1)
+                    # Tell the acquisition to begin
+                    if self.running: self.take_images.emit()
+                    # On the first instance Images thread may not exist
+                    while 'Images' not in self.window_.threads_ and self.running:
+                        time.sleep(0.01)
+                    # Check to see if thread is running
+                    while not self.window_.threads_['Images'].running and self.running:
+                        time.sleep(0.01)
+                    # Check to see if the thread has completed
+                    while self.window_.threads_['Images'].running and self.running:
+                        time.sleep(0.01)
+                    # Write data to the calibration array
+                    calibration[v] = np.add(calibration[v],self.window_.calibration_array_)
+                    # Update the progress bar for how far along the process is
+                    percent_complete = np.floor((counter/number_of_runs) * 100)
+                    if percent_complete > current:
+                        time_remaining = int(((time.time() - start) / counter) * (number_of_runs - counter))
+                        time_converted = f'{datetime.timedelta(seconds=time_remaining)} ({percent_complete}%)'
+                        self.window_._cal_progress.setFormat(time_converted)
+                        self.window_._cal_progress.setValue(int(current))
+                        current = percent_complete
+                    counter+=1
+                with open(self.filename, "a") as opf:
+                    np.savetxt(opf, np.sum(calibration[v],axis=0,dtype=np.int16), delimiter=',', fmt='%i')
+        # After all threshold values have finished let the UI know the process is done
         if self.running: self.finished.emit()
 
 class CameraCommandsThread(QtCore.QThread):
@@ -612,18 +661,8 @@ class UI_Threads():
         self.window_.update_pb(0)
 
     def camera_calibration_thread(self) -> None:
-        # On the first loop setup the camera for calibration
-        self.window_.pymms.calibrate_pimms(
-            update_voltage=True,
-            update_readout=True,
-            vThN=self.window_._cal_vthn.value(),
-            vThP=self.window_._cal_vthp.value(),
-            value=self.window_._cal_trim.value(),
-            iteration=0
-        )
-        print('Setting up for calibration.')
+        print('Setting up for calibration.\n\n')
         thread = CameraCalibrationThread(self.window_)
-        thread.progress.connect(self.window_.update_cal_pb)
         thread.take_images.connect(self.window_.ui_threads.acquisition_threads)
         thread.finished.connect(lambda: self.window_.start_and_stop_camera('Calibration'))
         self.window_.threads_['Calibration'] = thread
@@ -742,6 +781,9 @@ class MainWindow(QtWidgets.QMainWindow):
         #Load the ui file
         uic.loadUi(uifp,self)
 
+        #Add default save locations
+        self._file_dir_2.setText(str(pathlib.Path.home() / 'Documents'))
+
         #Add colourmaps
         colourmaps = pg.colormap.listMaps("matplotlib")
         self._colourmap.addItems(colourmaps)
@@ -846,8 +888,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 if self.run_calibration_:
                     self.threads_['Calibration'].running = False
                     self.threads_['Calibration'].wait()
-                    self.ui_threads.stop_acquisition_threads()
-                    del self.threads_['Calibration']
                     self._cal_run.setText("Start")
                     self._exp_type.setEnabled(True)
                     self.run_calibration_ = False

@@ -1583,7 +1583,7 @@ Please connect to camera.</string>
           <number>10</number>
          </property>
          <property name="maximum">
-          <number>100000</number>
+          <number>1000000</number>
          </property>
         </widget>
        </item>
@@ -1597,10 +1597,10 @@ Please connect to camera.</string>
        <item row="2" column="1">
         <widget class="QSpinBox" name="_dly_stop">
          <property name="minimum">
-          <number>-100000</number>
+          <number>-1000000</number>
          </property>
          <property name="maximum">
-          <number>100000</number>
+          <number>1000000</number>
          </property>
          <property name="value">
           <number>500</number>
@@ -1610,10 +1610,10 @@ Please connect to camera.</string>
        <item row="1" column="1">
         <widget class="QSpinBox" name="_dly_start">
          <property name="minimum">
-          <number>-100000</number>
+          <number>-1000000</number>
          </property>
          <property name="maximum">
-          <number>100000</number>
+          <number>1000000</number>
          </property>
          <property name="value">
           <number>-500</number>
@@ -1723,122 +1723,22 @@ Please connect to camera.</string>
      <attribute name="title">
       <string>Calibration</string>
      </attribute>
-     <widget class="QWidget" name="gridLayoutWidget_11">
-      <property name="geometry">
-       <rect>
-        <x>230</x>
-        <y>20</y>
-        <width>321</width>
-        <height>251</height>
-       </rect>
-      </property>
-      <layout class="QGridLayout" name="gridLayout_11">
-       <item row="5" column="0">
-        <widget class="QLabel" name="label_44">
-         <property name="text">
-          <string>Progress</string>
-         </property>
-        </widget>
-       </item>
-       <item row="5" column="1">
-        <widget class="QProgressBar" name="_cal_progress">
-         <property name="value">
-          <number>0</number>
-         </property>
-        </widget>
-       </item>
-       <item row="3" column="0">
-        <widget class="QLabel" name="label_41">
-         <property name="text">
-          <string>Frames per calibration</string>
-         </property>
-        </widget>
-       </item>
-       <item row="4" column="0" colspan="2">
-        <widget class="QPushButton" name="_cal_run">
-         <property name="enabled">
-          <bool>false</bool>
-         </property>
-         <property name="text">
-          <string>Run Calibration</string>
-         </property>
-        </widget>
-       </item>
-       <item row="3" column="1">
-        <widget class="QSpinBox" name="_cal_frames">
-         <property name="minimum">
-          <number>50</number>
-         </property>
-         <property name="maximum">
-          <number>1000</number>
-         </property>
-        </widget>
-       </item>
-       <item row="2" column="0">
-        <widget class="QLabel" name="label_37">
-         <property name="text">
-          <string>Trim Value</string>
-         </property>
-        </widget>
-       </item>
-       <item row="0" column="0">
-        <widget class="QLabel" name="label_39">
-         <property name="text">
-          <string>VThP</string>
-         </property>
-        </widget>
-       </item>
-       <item row="2" column="1">
-        <widget class="QSpinBox" name="_cal_trim">
-         <property name="maximum">
-          <number>15</number>
-         </property>
-         <property name="value">
-          <number>15</number>
-         </property>
-        </widget>
-       </item>
-       <item row="0" column="1">
-        <widget class="QSpinBox" name="_cal_vthp">
-         <property name="maximum">
-          <number>1000</number>
-         </property>
-         <property name="value">
-          <number>495</number>
-         </property>
-        </widget>
-       </item>
-       <item row="1" column="0">
-        <widget class="QLabel" name="label_40">
-         <property name="text">
-          <string>VThN</string>
-         </property>
-        </widget>
-       </item>
-       <item row="1" column="1">
-        <widget class="QSpinBox" name="_cal_vthn">
-         <property name="maximum">
-          <number>1000</number>
-         </property>
-         <property name="value">
-          <number>500</number>
-         </property>
-        </widget>
-       </item>
-      </layout>
-     </widget>
      <widget class="QWidget" name="gridLayoutWidget_12">
       <property name="geometry">
        <rect>
         <x>230</x>
         <y>280</y>
         <width>321</width>
-        <height>41</height>
+        <height>54</height>
        </rect>
       </property>
       <layout class="QGridLayout" name="gridLayout_12">
-       <item row="0" column="1">
-        <widget class="QLineEdit" name="_file_dir_2"/>
+       <item row="0" column="2">
+        <widget class="QPushButton" name="_file_button_2">
+         <property name="text">
+          <string>Path</string>
+         </property>
+        </widget>
        </item>
        <item row="0" column="0">
         <widget class="QLabel" name="label_42">
@@ -1847,10 +1747,16 @@ Please connect to camera.</string>
          </property>
         </widget>
        </item>
-       <item row="0" column="2">
-        <widget class="QPushButton" name="_file_button_2">
+       <item row="0" column="1">
+        <widget class="QLineEdit" name="_file_dir_2"/>
+       </item>
+       <item row="1" column="0" colspan="3">
+        <widget class="QPushButton" name="_cal_run">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
          <property name="text">
-          <string>Path</string>
+          <string>Run Calibration</string>
          </property>
         </widget>
        </item>
@@ -1868,6 +1774,229 @@ Please connect to camera.</string>
       <property name="text">
        <string>1. When you need to calibrate a sensor you need to do so under dark conditions first to establish what pixels are hot pixels.</string>
       </property>
+     </widget>
+     <widget class="QWidget" name="gridLayoutWidget_13">
+      <property name="geometry">
+       <rect>
+        <x>230</x>
+        <y>340</y>
+        <width>321</width>
+        <height>101</height>
+       </rect>
+      </property>
+      <layout class="QGridLayout" name="gridLayout_13">
+       <item row="4" column="1">
+        <widget class="QProgressBar" name="_cal_progress">
+         <property name="value">
+          <number>0</number>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+         </property>
+         <property name="textVisible">
+          <bool>true</bool>
+         </property>
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+        </widget>
+       </item>
+       <item row="4" column="0">
+        <widget class="QLabel" name="label_44">
+         <property name="text">
+          <string>Current Loop Progress</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="0">
+        <widget class="QLabel" name="label_49">
+         <property name="text">
+          <string>Current</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="0">
+        <widget class="QLabel" name="label_45">
+         <property name="text">
+          <string>Start</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="1">
+        <widget class="QLabel" name="_self_cur_l">
+         <property name="text">
+          <string>495</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="1">
+        <widget class="QLabel" name="_cal_end_l">
+         <property name="text">
+          <string>500</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="0">
+        <widget class="QLabel" name="label_47">
+         <property name="text">
+          <string>End</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QLabel" name="_cal_start_l">
+         <property name="text">
+          <string>495</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="gridLayoutWidget_14">
+      <property name="geometry">
+       <rect>
+        <x>230</x>
+        <y>10</y>
+        <width>321</width>
+        <height>262</height>
+       </rect>
+      </property>
+      <layout class="QGridLayout" name="gridLayout_14">
+       <property name="verticalSpacing">
+        <number>25</number>
+       </property>
+       <item row="4" column="0">
+        <widget class="QLabel" name="label_41">
+         <property name="text">
+          <string>Frames per calibration</string>
+         </property>
+        </widget>
+       </item>
+       <item row="5" column="0">
+        <widget class="QLabel" name="label_37">
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>35</height>
+          </size>
+         </property>
+         <property name="text">
+          <string>Trim Value</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QSpinBox" name="_cal_vthn">
+         <property name="maximum">
+          <number>1000</number>
+         </property>
+         <property name="value">
+          <number>450</number>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="0">
+        <widget class="QLabel" name="label_40">
+         <property name="text">
+          <string>VThN</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="1">
+        <widget class="QSpinBox" name="_cal_inc">
+         <property name="minimum">
+          <number>1</number>
+         </property>
+         <property name="maximum">
+          <number>50</number>
+         </property>
+         <property name="value">
+          <number>10</number>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <widget class="QSpinBox" name="_cal_vthp">
+         <property name="maximum">
+          <number>1000</number>
+         </property>
+         <property name="value">
+          <number>400</number>
+         </property>
+        </widget>
+       </item>
+       <item row="4" column="1">
+        <widget class="QSpinBox" name="_cal_frames">
+         <property name="minimum">
+          <number>50</number>
+         </property>
+         <property name="maximum">
+          <number>1000</number>
+         </property>
+        </widget>
+       </item>
+       <item row="5" column="1">
+        <layout class="QHBoxLayout" name="horizontalLayout">
+         <property name="spacing">
+          <number>0</number>
+         </property>
+         <property name="sizeConstraint">
+          <enum>QLayout::SetNoConstraint</enum>
+         </property>
+         <item>
+          <widget class="QSpinBox" name="_cal_trim">
+           <property name="maximum">
+            <number>15</number>
+           </property>
+           <property name="value">
+            <number>15</number>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QCheckBox" name="_cal_static">
+           <property name="layoutDirection">
+            <enum>Qt::RightToLeft</enum>
+           </property>
+           <property name="text">
+            <string>Static </string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="label_39">
+         <property name="text">
+          <string>VThP Start</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="0">
+        <widget class="QLabel" name="label_38">
+         <property name="text">
+          <string>Increment</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="0">
+        <widget class="QLabel" name="label_46">
+         <property name="text">
+          <string>VThP Stop</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="1">
+        <widget class="QSpinBox" name="_cal_vthp_stop">
+         <property name="maximum">
+          <number>1000</number>
+         </property>
+         <property name="value">
+          <number>500</number>
+         </property>
+        </widget>
+       </item>
+      </layout>
      </widget>
     </widget>
    </widget>

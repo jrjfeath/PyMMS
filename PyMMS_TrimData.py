@@ -43,26 +43,51 @@ class TrimData():
         for i in range(16):
             boolean_array[arr==i] = [bool(i & (1<<n)) for n in range(4)]
 
-        # Flatten (cols * rows) arrays and reverse the order, pimms reads from bottom right to top left
-        pixels_enabled = pixels_enabled.flatten()[::-1]
-        boolean_array = np.array(boolean_array.flatten()[::-1],dtype=int)
-        
-        # Calculate the values of 2^n
-        powers_of_two = [2**(7-x) for x in range(8)]
-        # Calculate the quotient and the remainder for the total number of iterations
-        ql = [x // 8 for x in range(cols * rows * 5)]
-        rl = [x % 8 for x in range(cols * rows * 5)]
-        # Calculate the power multiplier for each remainder (128,64,32,16,8,4,2,1)
-        pl = [powers_of_two[x] for x in rl]
-        # The trim bits corresponds to the data every x * 5 * rows (i.e 0 to 1296 for 324*324)
-        trim_indices = np.array([ql[x*rows*5:(x+1)*5*rows-rows] for x in range(0,cols)]).flatten()
-        trim_values = np.array([pl[x*rows*5:(x+1)*5*rows-rows] for x in range(0,cols)]).flatten()
-        trim_values *= boolean_array
-        np.add.at(file_arr,trim_indices,trim_values)
-        # The pixel mask bit corresponds to the data every x * 4 * rows (i.e 1296 to 1620 for 324*324)
-        pixel_mask_indices = np.array([ql[x*5*rows-rows:x*5*rows] for x in range(1,cols+1)]).flatten()
-        pixel_mask_values  = np.array([pl[x*5*rows-rows:x*5*rows] for x in range(1,cols+1)]).flatten()
-        pixel_mask_values *= pixels_enabled
-        np.add.at(file_arr,pixel_mask_indices ,pixel_mask_values)
+        # Make arrays 1D for quicker indexing
+        pixels_enabled = pixels_enabled.flatten()
+        boolean_array = boolean_array.reshape((-1, 4))
 
+        # Determine the quotient of each index
+        ql = np.arange(cols * rows * 5) // 8
+        # Determine the remainder of each index
+        rl = np.arange(cols * rows * 5) % 8
+        # Calculate the power multiplier for each remainder
+        pl = np.array([128, 64, 32, 16, 8, 4, 2, 1], dtype=np.uint8)[rl]
+      
+        i = 0
+        trim_multiplier_indices = []
+        trim_position_indices = []
+        trim_boolean_indices = []
+        mask_multiplier_indices = []
+        mask_position_indices = []
+        # PImMS is column-major sorted, so we have to iterate row by column
+        for row in range(cols-1,-1,-1):
+            for b in range(5): # Iterate over each bit
+                for col in range(rows-1,-1,-1):
+                    index = row + col * cols
+                    # Filter out values for the boolean array (first four bits)
+                    if b != 4:
+                        trim_multiplier_indices.append(i)
+                        trim_position_indices.append(index)
+                        trim_boolean_indices.append(b)
+                    # Filter out values for the enabled array (last bit)
+                    else:
+                        mask_multiplier_indices.append(i)
+                        mask_position_indices.append(index)
+                    i += 1
+        # Sort the arrays so the match the bitness of pimms
+        sorted_boolean = boolean_array[trim_position_indices, trim_boolean_indices]
+        sorted_enabled = pixels_enabled[mask_position_indices]
+
+        # Write the trim value data to the trim file array
+        arr_indices = np.array(ql[trim_multiplier_indices]).flatten()
+        arr_multiplier = np.array(pl[trim_multiplier_indices]).flatten()
+        sorted_boolean *= arr_multiplier
+        np.add.at(file_arr, arr_indices, sorted_boolean)
+
+        # Write the mask value data to the trim file array
+        pixel_mask_indices = np.array(ql[mask_multiplier_indices]).flatten()
+        pixel_mask_multiplier  = np.array(pl[mask_multiplier_indices]).flatten()
+        sorted_enabled *= pixel_mask_multiplier
+        np.add.at(file_arr, pixel_mask_indices, sorted_enabled)
         return file_arr

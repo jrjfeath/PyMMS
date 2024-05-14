@@ -208,7 +208,7 @@ class idflexusb():
         self.message = f'Disconnected device: {ret}'
         print(self.message)
 
-    def writeread_device(self,data,bytestoread=0,port=0,timeout=1000,sleep=0.02) -> None:
+    def writeread_device(self,data,bytestoread=0,port=0,timeout=1000,sleep=0.01) -> None:
         '''
         Write data to the PIMMS camera.
         Format: data [string], byte size [int], port [int], Timeout(ms) [int]
@@ -387,9 +387,11 @@ class idflexusb():
         stop_aqcuisition = self.pimms.StopImageAcquisition
         stop_aqcuisition.restype = ctypes.c_int 
         stop_aqcuisition.argtypes = [ctypes.c_void_p]
-
-        ret = stop_aqcuisition(self.camera_id)
-        if ret != 0: self.error_encountered(f"Error stopping acquisition.")
+        try: 
+            ret = stop_aqcuisition(self.camera_id)
+            if ret != 0: self.error_encountered(f"Error stopping acquisition.")
+        except OSError: 
+            self.error_encountered(f"Camera has already stopped.")
 
 class pymms():
     '''
@@ -572,20 +574,20 @@ class pymms():
         #If all DAC setting and startup commands successful
         self.idflex.message = f'Updated PIMMS DACs, trim, and readout!'
 
-    def calibrate_pimms(self,update_voltage=False,update_readout=False,vThN=450,vThP=450,value=15,iteration=0) -> None:
+    def calibrate_pimms(self,update=False,vThN=450,vThP=450,value=15,iteration=0) -> None:
         '''
         This function controls calibration of the camera, updating the pixel mask and trim values. 
         
         It can optionally select experiment mode and update the voltages if required.
         '''
         # Update with new threshold values
-        if update_voltage:
+        if update:
             self.settings['dac_settings']['vThN'] = vThN
             self.settings['dac_settings']['vThP'] = vThP
             self.dac_settings()
-        # Experimental Mode, no trigger, 4 bins
-        if update_readout:
             self.send_output_types(1,0,4)
-        # Write trim data
-        trim = TrimData.write_trim(value=value,iteration=iteration,calibration=True)
-        self.send_trim_to_pimms(trim)
+        else:
+            # Write trim data
+            trim = TrimData.write_trim(value=value,iteration=iteration,calibration=True)
+            self.send_trim_to_pimms(trim)
+            self.writeread_str(['#À@0005\r'])
