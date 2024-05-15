@@ -349,6 +349,7 @@ class CameraCalibrationThread(QtCore.QThread):
     '''
     take_images = QtCore.pyqtSignal()
     finished = QtCore.pyqtSignal()
+    progress = QtCore.pyqtSignal(list)
     def __init__(self, parent=None) -> None:
         QtCore.QThread.__init__(self, parent)
         self.trim_value = parent._cal_trim.value()
@@ -401,11 +402,11 @@ class CameraCalibrationThread(QtCore.QThread):
             # Update the current voltage label
             self.window_._self_cur_l.setText(f'{vthp}')
             counter = 0
-            current = 0.00
+            current = 0
             calibration = np.zeros((16,4,324,324)) # Calibration Array
             start = time.time()
-            # Value generally starts at 15 and iterates until 0
-            for v in range(self.trim_value, -1, -1):
+            # Scan values 14 through 4, 15 used to find mean, 0,1,2,3 are too intense to use
+            for v in range(self.trim_value, 3, -1):
                 if self.static and self.trim_value != v: break
                 if not self.running: break
                 # We need to scan 324*324 pixels in steps of 9 pixels, thus 81 steps
@@ -428,16 +429,16 @@ class CameraCalibrationThread(QtCore.QThread):
                     # Write data to the calibration array
                     calibration[v] = np.add(calibration[v],self.window_.calibration_array_)
                     # Update the progress bar for how far along the process is
-                    percent_complete = np.floor((counter/number_of_runs) * 100)
+                    percent_complete = int(np.floor((counter/number_of_runs) * 100))
                     if percent_complete > current:
                         time_remaining = int(((time.time() - start) / counter) * (number_of_runs - counter))
-                        time_converted = f'{datetime.timedelta(seconds=time_remaining)} ({percent_complete}%)'
-                        self.window_._cal_progress.setFormat(time_converted)
-                        self.window_._cal_progress.setValue(int(current))
+                        time_converted = f'{datetime.timedelta(seconds=time_remaining)}'
+                        self.progress.emit([time_converted, percent_complete])
                         current = percent_complete
                     counter+=1
                 with open(self.filename, "a") as opf:
                     np.savetxt(opf, np.sum(calibration[v],axis=0,dtype=np.int16), delimiter=',', fmt='%i')
+                self.progress.emit(['00:00:00', 0])
         # After all threshold values have finished let the UI know the process is done
         if self.running: self.finished.emit()
 
@@ -663,6 +664,7 @@ class UI_Threads():
     def camera_calibration_thread(self) -> None:
         print('Setting up for calibration.\n\n')
         thread = CameraCalibrationThread(self.window_)
+        thread.progress.connect(self.window_.update_calibration_progress)
         thread.take_images.connect(self.window_.ui_threads.acquisition_threads)
         thread.finished.connect(lambda: self.window_.start_and_stop_camera('Calibration'))
         self.window_.threads_['Calibration'] = thread
@@ -1029,6 +1031,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def update_cal_pb(self, value : int) -> None:
         '''Set the progressbar value'''
         self._cal_progress.setValue(value)
+
+    def update_calibration_progress(self, value : list) -> None:
+        self._cal_remaining.setText(value[0])
+        self._cal_progress.setValue(value[1])
 
     #####################################################################################
     # Delay Stage Functions

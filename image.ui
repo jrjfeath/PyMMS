@@ -1785,6 +1785,13 @@ Please connect to camera.</string>
        </rect>
       </property>
       <layout class="QGridLayout" name="gridLayout_13">
+       <item row="3" column="0">
+        <widget class="QLabel" name="label_49">
+         <property name="text">
+          <string>Current</string>
+         </property>
+        </widget>
+       </item>
        <item row="4" column="1">
         <widget class="QProgressBar" name="_cal_progress">
          <property name="value">
@@ -1808,22 +1815,8 @@ Please connect to camera.</string>
          </property>
         </widget>
        </item>
-       <item row="3" column="0">
-        <widget class="QLabel" name="label_49">
-         <property name="text">
-          <string>Current</string>
-         </property>
-        </widget>
-       </item>
-       <item row="0" column="0">
-        <widget class="QLabel" name="label_45">
-         <property name="text">
-          <string>Start</string>
-         </property>
-        </widget>
-       </item>
-       <item row="3" column="1">
-        <widget class="QLabel" name="_self_cur_l">
+       <item row="0" column="1">
+        <widget class="QLabel" name="_cal_start_l">
          <property name="text">
           <string>495</string>
          </property>
@@ -1843,10 +1836,24 @@ Please connect to camera.</string>
          </property>
         </widget>
        </item>
-       <item row="0" column="1">
-        <widget class="QLabel" name="_cal_start_l">
+       <item row="0" column="0">
+        <widget class="QLabel" name="label_45">
+         <property name="text">
+          <string>Start</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="1">
+        <widget class="QLabel" name="_self_cur_l">
          <property name="text">
           <string>495</string>
+         </property>
+        </widget>
+       </item>
+       <item row="4" column="2">
+        <widget class="QLabel" name="_cal_remaining">
+         <property name="text">
+          <string>00:00:00</string>
          </property>
         </widget>
        </item>
@@ -2037,6 +2044,68 @@ Please connect to camera.</string>
    <container>1</container>
   </customwidget>
  </customwidgets>
+ <tabstops>
+  <tabstop>_cal_vthn</tabstop>
+  <tabstop>_cal_vthp</tabstop>
+  <tabstop>_cal_vthp_stop</tabstop>
+  <tabstop>_cal_inc</tabstop>
+  <tabstop>_cal_frames</tabstop>
+  <tabstop>_cal_trim</tabstop>
+  <tabstop>_cal_static</tabstop>
+  <tabstop>_file_dir_2</tabstop>
+  <tabstop>_file_button_2</tabstop>
+  <tabstop>_cal_run</tabstop>
+  <tabstop>_vthp</tabstop>
+  <tabstop>_vthn</tabstop>
+  <tabstop>_bins</tabstop>
+  <tabstop>_exp_type</tabstop>
+  <tabstop>_trigger</tabstop>
+  <tabstop>_trim_dir</tabstop>
+  <tabstop>_trim_button</tabstop>
+  <tabstop>_update_camera_2</tabstop>
+  <tabstop>_update_camera</tabstop>
+  <tabstop>_n_of_frames</tabstop>
+  <tabstop>_dir_name</tabstop>
+  <tabstop>_path_button</tabstop>
+  <tabstop>_file_name</tabstop>
+  <tabstop>_save_box</tabstop>
+  <tabstop>_plainTextEdit</tabstop>
+  <tabstop>_camera_connect_button</tabstop>
+  <tabstop>_function_selection</tabstop>
+  <tabstop>_min_y</tabstop>
+  <tabstop>_max_y</tabstop>
+  <tabstop>_tof_range_min</tabstop>
+  <tabstop>_tof_range_max</tabstop>
+  <tabstop>_min_x</tabstop>
+  <tabstop>_max_x</tabstop>
+  <tabstop>_nofs</tabstop>
+  <tabstop>_view</tabstop>
+  <tabstop>_colourmap</tabstop>
+  <tabstop>_pop_tof</tabstop>
+  <tabstop>_pop_ion_count</tabstop>
+  <tabstop>_pop_image</tabstop>
+  <tabstop>_window_view</tabstop>
+  <tabstop>_tof_view</tabstop>
+  <tabstop>_rotate_c</tabstop>
+  <tabstop>_rotate_cc</tabstop>
+  <tabstop>_rotate_c_2</tabstop>
+  <tabstop>_vmax</tabstop>
+  <tabstop>_button</tabstop>
+  <tabstop>_dly_refresh</tabstop>
+  <tabstop>_com_ports</tabstop>
+  <tabstop>_dly_connect_button</tabstop>
+  <tabstop>_dly_vel_set</tabstop>
+  <tabstop>_delay_t0</tabstop>
+  <tabstop>_dly_start</tabstop>
+  <tabstop>_dly_stop</tabstop>
+  <tabstop>_dly_step</tabstop>
+  <tabstop>_dly_img</tabstop>
+  <tabstop>spinBox</tabstop>
+  <tabstop>pushButton_3</tabstop>
+  <tabstop>_dly_vel_but</tabstop>
+  <tabstop>_dly_send_to</tabstop>
+  <tabstop>tabWidget</tabstop>
+ </tabstops>
  <resources/>
  <connections/>
 </ui>
