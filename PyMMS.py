@@ -20,7 +20,6 @@ import numpy as np
 import pyqtgraph as pg
 import warnings
 import yaml
-from pympler.tracker import SummaryTracker
 from PyQt6 import uic, QtWidgets, QtCore, QtGui
 #Import the newport class function
 from Delay_Stage import newport_delay_stage
@@ -46,9 +45,12 @@ except FileNotFoundError:
     exit()
 
 def cls() -> None:
-    '''This function clears the console as it causes memory issues when calibrating.'''
+    '''This function clears the console as it can causes memory issues when calibrating.'''
     os.system('cls' if os.name=='nt' else 'clear')
 
+#########################################################################################
+# Thread Class for storing and deleting threads
+#########################################################################################
 class ThreadControl():
     '''
     Class that holds all of the running threads
@@ -56,16 +58,23 @@ class ThreadControl():
     def __init__(self) -> None:
         self.threads = {}
 
-    def stop_thread(self, thread_name) -> None:
+    def start_thread(self, thread_name : str , thread_data : QtCore.QObject) -> None:
+        # Check if thread is running, if so kill it before starting again
+        if thread_name in self.threads: self.stop_thread(thread_name)
+        self.threads[thread_name] = thread_data
+        self.threads[thread_name].start()
+
+    def stop_thread(self, thread_name : str) -> None:
+        # Don't try to kill a thread that doesn't exist
+        if thread_name not in self.threads: return
         self.threads[thread_name].running = False
         self.threads[thread_name].wait()
         self.threads.pop(thread_name, None)
 
     def stop_calibration_iteration(self) -> None:
+        # Used to signal the calibration thread that acquisition has finished
         if "Calibration" in self.threads:
             self.threads['Calibration'].camera_acquisition = False
-
-thread_control = ThreadControl()
 
 #########################################################################################
 # Thread Classes for controlling PImMS
@@ -103,8 +112,8 @@ class RunCameraThread(QtCore.QThread):
     finished = QtCore.pyqtSignal()
     limit = QtCore.pyqtSignal()
     progress = QtCore.pyqtSignal(str)
-    tof_counts = QtCore.pyqtSignal(np.ndarray)
-    ion_counts = QtCore.pyqtSignal(int)
+    acquisition_fps = QtCore.pyqtSignal(str, str)
+    tof_counts = QtCore.pyqtSignal(int, np.ndarray)
     ui_image = QtCore.pyqtSignal(np.ndarray)
 
     def __init__(self, parent=None) -> None:
@@ -225,14 +234,13 @@ class RunCameraThread(QtCore.QThread):
 
     def run(self) -> None:       
         print('Starting camera.')
-        self.window_._frame_count.setText('0')
+        self.acquisition_fps.emit('0','  0 fps')
 
         # Continue checking the image queue until we kill the camera.
         while self.running == True:
             # Update the fps count every second
             if time.time() - self.fps_timer > 1:
-                self.window_._fps_1.setText(f'{self.fps} fps')
-                self.window_._frame_count.setText(f'{self.shot_number}')
+                self.acquisition_fps.emit(f'{self.shot_number}',f'{self.fps:3d} fps')
                 self.fps_timer = time.time()
                 self.fps = 0
 
@@ -246,20 +254,22 @@ class RunCameraThread(QtCore.QThread):
 
             # Stop acquiring images when limit is reached
             if self.shot_number >= self.number_of_frames and self.stop_after_n_frames:
-                self.window_._frame_count.setText(f'{self.shot_number}')
+                self.acquisition_fps.emit(f'{self.shot_number}',f'  0 fps')
                 self.stop_limit()
 
-            # If queue is empty the program will crash if you try to check it
+            # Wait for image to come through queue, 150ms timeout
             try: images = self.image_queue.get(timeout=0.15)
-            except queue.Empty: pass
-            # if self.image_queue.empty():
-            #     pass
-            # else:
+            except queue.Empty: continue
 
-            # Get image array from queue
-            # images = self.image_queue.get_nowait()
+            # Update various counts
+            self.cml_number+=1
+            self.shot_number+=1
+            self.fps+=1
+
+            # Make sure PIMMS has passed back a data frame of the correct size
             if images.shape[0] != (self.bins + self.analogue) : continue
 
+            # During calibration there is no need to output any data
             if self.calibration:
                 temp = np.zeros((images.shape),dtype=int)
                 temp[images != 0] = 1
@@ -283,9 +293,11 @@ class RunCameraThread(QtCore.QThread):
                 tof_data = self.extract_tof_data(images[1:])
             else:
                 tof_data = self.extract_tof_data(images)
+            # Make a combined array for saving to file
+            stacked_tof = np.vstack(tof_data)
 
             # Append the ToF Data to the save frame
-            self.frm_image.append(np.vstack(tof_data))
+            self.frm_image.append(stacked_tof)
             self.frm_image.append(np.zeros((4,),dtype=np.int16))
 
             # If the user wants to refresh the cumulative image clear array
@@ -294,23 +306,21 @@ class RunCameraThread(QtCore.QThread):
                 self.cml_number = 1
                 self.window_.reset_cml_ = False
 
-            #Get tof plot data before getting live view image
-            tof = np.zeros(4096)
             # If the user selected cumulative do nothing
             if self.window_._tof_view.currentIndex() == 4: 
-                pass
+                tof_data = stacked_tof
             # Return the specific ToF the user wants
             elif self.window_._tof_view.currentIndex() < self.bins:
                 tof_data = tof_data[self.window_._tof_view.currentIndex()]
             # If the user is selecting a bin that doesnt exist
             else:
                 tof_data = np.zeros((tof_data[0].shape), dtype=np.uint8)
-            
-            uniques, counts = np.unique(np.vstack(tof_data)[:,-2].flatten(), return_counts=True) 
+
+            tof = np.zeros(4096)
+            uniques, counts = np.unique(tof_data[:,-2].flatten(), return_counts=True) 
             tof[uniques] = counts
             total_ions = int(np.sum(tof))
-            self.ion_counts.emit(total_ions)
-            self.tof_counts.emit(tof)
+            self.tof_counts.emit(total_ions, tof)
 
             '''
             After TOF data has been plotted, convert into img format.
@@ -331,7 +341,7 @@ class RunCameraThread(QtCore.QThread):
             image = np.rot90(image, self.window_.rotation_)
             #If no ions in shot
             if np.isnan(np.sum(image)): image = np.zeros((324,324))
-            self.cml_image  = ((self.cml_image   * (self.cml_number - 1)) / self.cml_number) + (image / self.cml_number)
+            self.cml_image  = ((self.cml_image * (self.cml_number - 1)) / self.cml_number) + (image / self.cml_number)
 
             if self.window_._view.currentIndex() == 1:
                 image = self.cml_image 
@@ -342,7 +352,6 @@ class RunCameraThread(QtCore.QThread):
                 image[image > (self.window_._vmax.value()*0.01)] = 0
                 image = ((image / np.max(image)))
 
-            #self.window_.image_ = np.array(image * 255,dtype=np.uint8)
             colourmap = self.window_._colourmap.currentText()
             if colourmap != "None": 
                 cm = pg.colormap.get(colourmap,source="matplotlib")
@@ -351,11 +360,7 @@ class RunCameraThread(QtCore.QThread):
                 image = np.array(image * 255, dtype=np.uint8)
 
             self.ui_image.emit(image)
-
-            #Update image canvas
-            self.cml_number+=1
-            self.shot_number+=1
-            self.fps+=1
+            # Delete large arrays to conserve memory
             del tof, tof_data, image
 
         if self.save_data:
@@ -364,6 +369,7 @@ class RunCameraThread(QtCore.QThread):
         if self.calibration:
             self.window_.calibration_array_ = self.calibration_array
 
+        # Delete large arrays to conserve memory
         del self.frm_image, self.calibration_array, self.cml_image
         self.finished.emit()
         print('Camera stopping.')
@@ -384,17 +390,20 @@ class CameraCalibrationThread(QtCore.QThread):
     take_images = QtCore.pyqtSignal()
     finished = QtCore.pyqtSignal()
     progress = QtCore.pyqtSignal(list)
+    voltage = QtCore.pyqtSignal(str, str)
+
     def __init__(self, parent=None) -> None:
         QtCore.QThread.__init__(self, parent)
-        self.trim_value = parent._cal_trim.value()
-        self.running = True
-        self.camera_acquisition = False
-        self.initial = parent._cal_vthp.value()
-        self.end = parent._cal_vthp_stop.value()
-        self.inc = parent._cal_inc.value()
-        self.current = 0
-        self.static = parent._cal_static.isChecked()
-        self.directory = parent._file_dir_2.text()
+        self.trim_value : int = parent._cal_trim.value()
+        self.running : bool = True
+        self.camera_acquisition : bool = False
+        self.initial : int = parent._cal_vthp.value()
+        self.end : int = parent._cal_vthp_stop.value()
+        self.inc : int = parent._cal_inc.value()
+        self.vThN : int = parent._cal_vthn.value()
+        self.current : int = 0
+        self.static : bool = parent._cal_static.isChecked()
+        self.directory : str = parent._file_dir_2.text()
         self.window_ = parent
 
     def create_filename(self) -> None:
@@ -408,7 +417,7 @@ class CameraCalibrationThread(QtCore.QThread):
             self.directory = str(pathlib.Path.home() / 'Documents')
 
         #Create a filename for saving data
-        filename = f'{os.path.join(self.directory)}/P{self.current}_N{self.window_._cal_vthn.value()}'
+        filename = f'{os.path.join(self.directory)}/P{self.current}_N{self.vThN}'
         if self.static: filename += '_static'
         filename += '_0000.csv'
         #Check if file already exists so you dont overwrite data
@@ -419,29 +428,23 @@ class CameraCalibrationThread(QtCore.QThread):
         self.filename = filename
     
     def run(self) -> None:
-        number_of_runs = (self.trim_value+1) * 81
+        # Values below 4 are ignored per Jason's thesis
+        number_of_runs = (self.trim_value+1 - 4) * 81
+        # In a static run there is only a single trim value used
         if self.static: number_of_runs = 81
-        # Set the start and stop labels
-        self.window_._cal_start_l.setText(f'{self.initial}')
-        self.window_._cal_end_l.setText(f'{self.end}')
         for vthp in range(self.initial, self.end+self.inc, self.inc):
             if not self.running: break
             self.current = vthp
             self.create_filename()
             # Before calibration set VthP and VthN
-            self.window_.pymms.calibrate_pimms(
-                update=True,
-                vThN=self.window_._cal_vthn.value(),
-                vThP=vthp,
-            )
-            # Update the current voltage label
-            self.window_._self_cur_l.setText(f'{vthp}')
+            self.window_.pymms.calibrate_pimms(update=True,vThN=self.vThN,vThP=vthp)
             counter = 0
             current = 0
             start = time.time()
             # Scan values 14 through 4, 15 used to find mean, 0,1,2,3 are too intense to use
             for v in range(self.trim_value, 3, -1):
-                self.window_._cal_trim_value.setText(f'{v}')
+                # Update the current voltage and trim labels
+                self.voltage.emit(f'{vthp}', f'{v}')
                 if self.static and self.trim_value != v: break
                 if not self.running: break
                 calibration = np.zeros((4,324,324), dtype=np.uint16) # Calibration Array
@@ -450,12 +453,14 @@ class CameraCalibrationThread(QtCore.QThread):
                     if not self.running: break
                     self.window_.pymms.calibrate_pimms(value=v,iteration=i)
                     time.sleep(0.01)
+                    if not self.running: break
                     # Tell the acquisition to begin
                     self.camera_acquisition = True
-                    self.take_images.emit()
+                    if self.running: self.take_images.emit()
                     # Wait for acquisition to finish
                     while self.camera_acquisition and self.running:
                         time.sleep(0.01)
+                    if not self.running: break
                     # Write data to the calibration array
                     calibration = np.add(calibration,self.window_.calibration_array_)
                     # Update the progress bar for how far along the process is
@@ -466,7 +471,7 @@ class CameraCalibrationThread(QtCore.QThread):
                         self.progress.emit([time_converted, percent_complete])
                         current = percent_complete
                     counter+=1
-                    # cls()
+                    cls()
                 with open(self.filename, "a") as opf:
                     opf.write(f'# Trim Value: {v}\n')
                     np.savetxt(opf, np.sum(calibration,axis=0,dtype=np.int16), delimiter=',', fmt='%i')
@@ -474,6 +479,7 @@ class CameraCalibrationThread(QtCore.QThread):
             
             # Emit signal to restart counter
             self.progress.emit(['00:00:00', 0])
+
         # After all threshold values have finished let the UI know the process is done
         if self.running: self.finished.emit()
 
@@ -584,8 +590,7 @@ class UI_Threads():
         thread = ProgressBarThread()
         thread.started.connect(lambda: self.window_._progressBar.setFormat('Communicating with camera.'))
         thread.progressChanged.connect(self.window_.update_pb)
-        thread_control.threads['ProgressBar'] = thread
-        thread_control.threads['ProgressBar'].start()
+        thread_control.start_thread('ProgressBar', thread)
         # Start the camera communication thread
         thread = CameraCommandsThread()
         thread.output = self.window_._exp_type.currentIndex()
@@ -598,8 +603,7 @@ class UI_Threads():
         thread.turn_on_completed.connect(self.window_.lock_camera_connect)
         thread.run_camera.connect(self.window_.unlock_run_camera)
         thread.finished.connect(self.stop_camera_control_threads)
-        thread_control.threads['Camera'] = thread
-        thread_control.threads['Camera'].start()
+        thread_control.start_thread('Camera', thread)
 
     def acquisition_threads(self) -> None:
         '''
@@ -626,36 +630,43 @@ class UI_Threads():
         thread.analogue = analogue
         thread.bins = bins
         # Generate a shared image queue object
-        image_queue = queue.Queue(maxsize=10)
+        image_queue = queue.Queue(maxsize=2)
         thread.image_queue = image_queue
+        thread.acquisition_fps.connect(self.window_.update_fps)
         thread.tof_counts.connect(self.window_.update_tof_counts)
-        thread.ion_counts.connect(self.window_.update_ion_counts)
         thread.ui_image.connect(self.window_.update_image)
         thread.progress.connect(self.window_.update_console)
         thread.limit.connect(self.window_.start_and_stop_camera)
-        thread_control.threads['Images'] = thread
-        thread_control.threads['Images'].start()
+        thread_control.start_thread('Images', thread)
         # Start the plot update thread
         thread = UpdatePlotsThread()
         thread.update.connect(self.window_.update_plots)
-        thread_control.threads['Plots'] = thread
-        thread_control.threads['Plots'].start()
+        thread_control.start_thread('Plots', thread)
         # Start the acquisition thread 
         thread = ImageAcquisitionThread()
         thread.size = size
         thread.image_queue = image_queue
         thread.pymms = self.window_.pymms
-        thread_control.threads['Acquisition'] = thread
-        thread_control.threads['Acquisition'].start()
+        thread_control.start_thread('Acquisition', thread)
 
     def camera_calibration_thread(self) -> None:
         print('Setting up for calibration.\n\n')
+        # Set the start and stop labels
+        self.window_._cal_start_l.setText(f'{self.window_._cal_vthp.value()}')
+        self.window_._cal_end_l.setText(f'{self.window_._cal_vthp_stop.value()}')
+        # Create the calibration thread
         thread = CameraCalibrationThread(self.window_)
         thread.progress.connect(self.window_.update_calibration_progress)
         thread.take_images.connect(self.window_.ui_threads.acquisition_threads)
+        thread.voltage.connect(self.window_.update_cal_values)
         thread.finished.connect(lambda: self.window_.start_and_stop_camera('Calibration'))
-        thread_control.threads['Calibration'] = thread
-        thread_control.threads['Calibration'].start()
+        thread_control.start_thread('Calibration', thread)
+
+    def get_delay_position_thread(self) -> None:
+        '''Starts the thread that updates the delay generator position'''
+        thread = GetDelayPositionThread()
+        thread.progressChanged.connect(self.window_.update_pos)
+        thread_control.start_thread('Delay', thread)
 
     def stop_camera_control_threads(self) -> None:
         self.window_._progressBar.setFormat('')
@@ -666,7 +677,7 @@ class UI_Threads():
         '''Stop all three acquisition threads'''
         for thread_name in ['Acquisition','Plots','Images']:
             thread_control.stop_thread(thread_name)
-        # Class will check if calibration running and if true stop iteration
+        # If running a calibration finish waiting for acquisition
         thread_control.stop_calibration_iteration()
         self.window_.reset_plots()
         # Fast Pymms has to close the acquisition
@@ -680,13 +691,6 @@ class UI_Threads():
         # Fast Pymms has to close the acquisition
         if hasattr(self.window_.pymms.idflex, 'StopAcquisition'):
             self.window_.pymms.idflex.StopAcquisition()
-
-    def get_delay_position_thread(self) -> None:
-        '''Starts the thread that updates the delay generator position'''
-        thread = GetDelayPositionThread()
-        thread.progressChanged.connect(self.window_.update_pos)
-        thread_control.threads['Delay'] = thread
-        thread_control.threads['Delay'].start()
 
     def move_to_starting_position(self) -> None:
         '''
@@ -826,7 +830,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         #Make some UI variables
         self.pymms = None
-        thread_control.threads = {} # Dictionary containing threads
         self.rotation_ = 0 # Rotation angle of the image
         self.connected_ = False #Is camera connected?
         self.dly_connected = False #Is the delay stage connected?
@@ -974,12 +977,20 @@ class MainWindow(QtWidgets.QMainWindow):
         '''Set the progressbar value'''
         self._cal_progress.setValue(value)
 
-    def update_tof_counts(self, value : np.ndarray) -> None:
-        self.tof_counts_ = value
+    def update_cal_values(self, vThP_low : str, trim_value : str) -> None:
+        self._self_cur_l.setText(vThP_low)
+        self._cal_trim_value.setText(trim_value)
 
-    def update_ion_counts(self, value : int) -> None:
-        self.ion_count_displayed = value
-        self.ion_counts_.append(value)
+    def update_fps(self, frames : str, fps : str) -> None:
+        '''Set frame count and the fps for the current acquisition'''
+        self._frame_count.setText(frames)
+        self._fps_1.setText(fps)
+
+    def update_tof_counts(self, ion_counts : int, tof_counts : np.ndarray) -> None:
+        '''Updates the total ion count and the tof spectrum'''
+        self.tof_counts_ = tof_counts
+        self.ion_count_displayed = ion_counts
+        self.ion_counts_.append(ion_counts)
         del self.ion_counts_[0]
 
     def update_image(self, value : np.ndarray) -> None:
@@ -1138,7 +1149,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._camera_connect_button.setText(f'Disconnect')
             self._update_camera.setDisabled(False)
             self.connected_ = True
-            thread_control.threads['ProgressBar'].running = False
+            thread_control.stop_thread('ProgressBar')
         else:
             self.pymms = None
             self._camera_connect.setText(f'Disconnected')
@@ -1238,8 +1249,10 @@ def except_hook(cls, exception, traceback):
 if __name__ == '__main__':
     sys.excepthook = except_hook
     app = QtWidgets.QApplication(sys.argv)
-    #Call the class for your respective delay stage
+    # Call the class for your respective delay stage
     delay_stage = newport_delay_stage(fd)
+    # Call the class for storing threads.
+    thread_control = ThreadControl()
 
     #Create window
     w = MainWindow()
