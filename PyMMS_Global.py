@@ -15,15 +15,10 @@ except FileNotFoundError:
     exit()
 
 #Create PyMMS object
-pymm = pymms()
+pymm = pymms(defaults)
 #Connect to camera
-pymm.idflex.open_dll()
 pymm.idflex.init_device()
 #Send GlobalInitialize command to camera
 byte = (bytes.fromhex('23 FF E3 0D')).decode('latin-1')
-print(byte)
-ret, dat = pymm.idflex.writeread_device(byte,0,1000)
-print(ret,dat)
-if ret != 0:
-    print('Could not connect to camera, is it plugged in?')
+pymm.idflex.writeread_device(byte,0,1000)
 pymm.idflex.close_device()

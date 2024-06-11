@@ -281,7 +281,7 @@ class pymms():
             if len(details) == 2:
                 self.idflex.writeread_device(byte,details[1])
             else:
-                ret, dat = self.idflex.writeread_device(byte,details[1],details[2])
+                self.idflex.writeread_device(byte,details[1],details[2])
                 if name == 'GlobalInitialize':
                     time.sleep(3)
                 else:
@@ -289,15 +289,15 @@ class pymms():
             if self.idflex.error != 0: return
 
         #Program dac settings
-        ret = self.dac_settings()
+        self.dac_settings()
         if self.idflex.error != 0: return
 
         #Program control settings
-        ret = self.program_bias_dacs()
+        self.program_bias_dacs()
         if self.idflex.error != 0: return
 
         #Write stop header at end
-        ret = self.writeread_str(['#1@0001\r'])
+        self.writeread_str(['#1@0001\r'])
         if self.idflex.error != 0: return
 
         #If all connection commands successful return 0
@@ -360,7 +360,7 @@ class pymms():
 
         self.idflex.message = 'Updated camera view.'
 
-    def start_up_pimms(self,trim_file="",function=0,trigger=0) -> None:
+    def start_up_pimms(self,trim_file="",function=0,trigger=0,rows=5) -> None:
         '''
         This function sends the updated DAC and start-up commands to PIMMS.
 

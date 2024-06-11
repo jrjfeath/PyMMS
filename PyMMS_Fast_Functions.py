@@ -258,9 +258,11 @@ class idflexusb():
             ctypes.c_uint32(timeout)
         )
 
-        if len(data) > 200: 
+        if len(data) > 200:
+            pass
             print(f'Sent trim, Returned: {ret}')
         else:
+            pass
             print(f'{ret}, Sent: {data[:-1]}, Returned: {data_out.raw[:bytesRead.value]}')
         if ret != 0: self.error_encountered(f"Error writing data to camera.")
         time.sleep(sleep) #Wait X ms between each send
