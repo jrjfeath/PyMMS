@@ -23,7 +23,7 @@ class TrimData():
         pixels_enabled = np.zeros((rows,cols), dtype=int)
         # If the trim data is stored in csv format
         if filename:
-            arr = np.fromfile(filename,dtype=np.uint8)
+            arr = np.loadtxt(filename,dtype=np.uint8,delimiter=',')
         else:
             arr = np.full((rows,cols),value, dtype='>i')
             # When calibrating only set values for every 9th pixel and disable all other pixels

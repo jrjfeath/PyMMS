@@ -257,9 +257,9 @@ class RunCameraThread(QtCore.QThread):
                 self.acquisition_fps.emit(f'{self.shot_number}',f'  0 fps')
                 self.stop_limit()
 
-            # Wait for image to come through queue, 150ms timeout
-            try: images = self.image_queue.get(timeout=0.15)
-            except queue.Empty: continue
+            # Wait for image to come through queue
+            if self.image_queue.empty(): continue
+            images = self.image_queue.get_nowait()
 
             # Update various counts
             self.cml_number+=1
@@ -428,24 +428,26 @@ class CameraCalibrationThread(QtCore.QThread):
         self.filename = filename
     
     def run(self) -> None:
-        # Values below 4 are ignored per Jason's thesis
-        number_of_runs = (self.trim_value+1 - 4) * 81
-        # In a static run there is only a single trim value used
-        if self.static: number_of_runs = 81
-        for vthp in range(self.initial, self.end+self.inc, self.inc):
-            if not self.running: break
-            self.current = vthp
-            self.create_filename()
-            # Before calibration set VthP and VthN
-            self.window_.pymms.calibrate_pimms(update=True,vThN=self.vThN,vThP=vthp)
-            counter = 0
-            current = 0
+        # Calculate the number of steps the process needs to run
+        number_of_runs = int(((self.end - self.initial) / self.inc) * 81)
+        # Scan values 14 through 4, 15 used to find mean, 0,1,2,3 are too intense to use
+        for v in range(self.trim_value, 3, -1):
+            # Setup the counters for determining how far along the calibration is
+            step_counter = 0
+            current_percent = 0
             start = time.time()
-            # Scan values 14 through 4, 15 used to find mean, 0,1,2,3 are too intense to use
-            for v in range(self.trim_value, 3, -1):
+            # Scan from lower to upper VThP values
+            for vthp in range(self.initial, self.end+self.inc, self.inc):
+                # Check if user has stopped process
+                if not self.running: break
+                # Check if user is running a static scan
+                if self.static and self.trim_value != v: break
+                self.current = vthp
+                self.create_filename()
+                # Before calibration set VthP and VthN
+                self.window_.pymms.calibrate_pimms(update=True,vThN=self.vThN,vThP=vthp)
                 # Update the current voltage and trim labels
                 self.voltage.emit(f'{vthp}', f'{v}')
-                if self.static and self.trim_value != v: break
                 if not self.running: break
                 calibration = np.zeros((4,324,324), dtype=np.uint16) # Calibration Array
                 # We need to scan 324*324 pixels in steps of 9 pixels, thus 81 steps
@@ -464,13 +466,13 @@ class CameraCalibrationThread(QtCore.QThread):
                     # Write data to the calibration array
                     calibration = np.add(calibration,self.window_.calibration_array_)
                     # Update the progress bar for how far along the process is
-                    percent_complete = int(np.floor((counter/number_of_runs) * 100))
-                    if percent_complete > current:
-                        time_remaining = int(((time.time() - start) / counter) * (number_of_runs - counter))
+                    percent_complete = int(np.floor((step_counter/number_of_runs) * 100))
+                    if percent_complete > current_percent:
+                        time_remaining = int(((time.time() - start) / step_counter) * (number_of_runs - step_counter))
                         time_converted = f'{datetime.timedelta(seconds=time_remaining)}'
                         self.progress.emit([time_converted, percent_complete])
-                        current = percent_complete
-                    counter+=1
+                        current_percent = percent_complete
+                    step_counter+=1
                     cls()
                 with open(self.filename, "a") as opf:
                     opf.write(f'# Trim Value: {v}\n')

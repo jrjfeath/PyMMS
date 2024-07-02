@@ -401,3 +401,19 @@ class pymms():
         #If all DAC setting and startup commands successful
         self.idflex.message = f'Updated PIMMS DACs, trim, and readout!'
     
+    def calibrate_pimms(self,update=False,vThN=450,vThP=450,value=15,iteration=0) -> None:
+        '''
+        This function controls calibration of the camera, updating the pixel mask and trim values. 
+        
+        It can optionally select experiment mode and update the voltages if required.
+        '''
+        # Update with new threshold values
+        if update:
+            self.settings['dac_settings']['vThN'] = vThN
+            self.settings['dac_settings']['vThP'] = vThP
+            self.dac_settings()
+            self.send_output_types(1,0)
+        else:
+            # Write trim data
+            trim = TrimData.write_trim(value=value,iteration=iteration,calibration=True)
+            self.send_trim_to_pimms(trim)
