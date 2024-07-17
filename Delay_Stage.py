@@ -1,6 +1,8 @@
 '''
 This library is used for communication with delay stages being integrated into the PyMMS software.
 If a new class is added make sure to follow the function calls, see newport class, to ensure no code is broken.
+The Newport.DLS.CommandInterfaceDLS.dll can be found in the following directory:
+C:\Windows\Microsoft.NET\assembly\GAC_64\Newport.DLS.CommandInterface
 '''
 import sys
 import serial.tools.list_ports #pyserial
