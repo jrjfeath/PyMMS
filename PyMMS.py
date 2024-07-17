@@ -961,6 +961,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ion_count_plot_line.setData(self.ion_counts_)
 
     def update_plots(self) -> None:
+        image = self.image_
+        
+        # Scale the image based off the slider
+        if self._vmax.value() != 100:
+            image[image > (self._vmax.value()*0.01)] = 0
+            image = ((image / np.max(image)))
+
+        colourmap = self._colourmap.currentText()
+        if colourmap != "None": 
+            cm = pg.colormap.get(colourmap,source="matplotlib")
+            image = cm.map(image)
+        else:
+            image = np.array(image * 255, dtype=np.uint8)
+
         self.ion_count_plot_line.setData(self.ion_counts_)
         self.tof_plot_line.setData(self.tof_counts_)
         self.graphics_view_.setImage(self.image_, levels=[0,255])
