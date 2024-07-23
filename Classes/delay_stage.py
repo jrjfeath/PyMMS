@@ -1,22 +1,22 @@
 '''
 This library is used for communication with delay stages being integrated into the PyMMS software.
 If a new class is added make sure to follow the function calls, see newport class, to ensure no code is broken.
-The Newport.DLS.CommandInterfaceDLS.dll can be found in the following directory:
-C:\Windows\Microsoft.NET\assembly\GAC_64\Newport.DLS.CommandInterface
+The Newport.DLS.CommandInterfaceDLS.dll can be found in the following directory after installing their software:
+C:/Windows/Microsoft.NET/assembly/GAC_64/Newport.DLS.CommandInterface
 '''
+import os
 import sys
 import serial.tools.list_ports #pyserial
-import os
 
 #########################################################################################
 # Class used for communicating with the Newport delay stage
 #########################################################################################
-class newport_delay_stage():
+class NewportDelayStage():
     '''
     Controls communication with Newport delay stages.\n
     If the name of the dll is different pass that when the function is called.\n
     Imported at the end of the script to prevent conflicts with PyQt library.\n
-    Requires the pythonnet and serial libraries.
+    Requires pyserial library.
     '''
 
     def __init__(self,directory,hardware_id='PID=104D:3009',filename='Newport.DLS.CommandInterfaceDLS'):

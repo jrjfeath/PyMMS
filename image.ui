@@ -54,7 +54,7 @@
      <attribute name="title">
       <string>Camera</string>
      </attribute>
-     <widget class="QPushButton" name="_rotate_c_2">
+     <widget class="QPushButton" name="_reset_cumulative">
       <property name="enabled">
        <bool>true</bool>
       </property>
@@ -1046,12 +1046,12 @@ Please connect to camera.</string>
         <widget class="QComboBox" name="_exp_type">
          <item>
           <property name="text">
-           <string>Experimental with analogue</string>
+           <string>Experimental</string>
           </property>
          </item>
          <item>
           <property name="text">
-           <string>Experimental</string>
+           <string>Experimental with analogue</string>
           </property>
          </item>
         </widget>
@@ -2131,7 +2131,7 @@ p, li { white-space: pre-wrap; }
   <tabstop>_tof_view</tabstop>
   <tabstop>_rotate_c</tabstop>
   <tabstop>_rotate_cc</tabstop>
-  <tabstop>_rotate_c_2</tabstop>
+  <tabstop>_reset_cumulative</tabstop>
   <tabstop>_vmax</tabstop>
   <tabstop>_button</tabstop>
   <tabstop>_dly_refresh</tabstop>

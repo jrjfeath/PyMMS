@@ -17,14 +17,21 @@ class ImageAcquisitionThread(QtCore.QThread):
         QtCore.QThread.__init__(self, parent)
         self.running : bool = True
         self.waiting : bool = True
-        self.size : int = 5
+        self.size    : int = 5
         self.image_queue = None # queue for storing images
         self.pymms = None # Class for camera communication
+
+    def update_variables(self, parent) -> None:
+        self.size = parent._bins.value() + parent._exp_type.currentIndex()
+        self.image_queue = parent.image_queue
+        self.pymms = parent.pymms
 
     def run(self) -> None:
         '''Ask the camera for image arrays.'''
         while self.running:
-            if self.waiting: continue # If thread not active continue
+            if self.waiting: 
+                QtCore.QThread.msleep(1)
+                continue
             image = self.pymms.idflex.readImage(size = self.size)
             try: self.image_queue.put_nowait(image)
             except queue.Full: pass
@@ -32,9 +39,6 @@ class ImageAcquisitionThread(QtCore.QThread):
     def pause(self) -> None:
         '''When Calibrating we do not want to be constantly creating and destroying threads.'''
         self.waiting = True
-        # Empty image_queue on pause to prevent memory issues
-        with self.image_queue.mutex:
-            self.image_queue.queue.clear()
 
     def stop(self) -> None:
         '''When we close the application make sure the thread is closed.'''
@@ -44,8 +48,6 @@ class RunCameraThread(QtCore.QThread):
     '''
     Main function for analysing frames from the camera.
     '''
-    finished = QtCore.pyqtSignal()                  
-    '''Emit signal when thread finishes'''
     limit = QtCore.pyqtSignal()                     
     '''Emit signal when number of frames is reached'''
     progress = QtCore.pyqtSignal(str)               
@@ -54,25 +56,21 @@ class RunCameraThread(QtCore.QThread):
     '''Emit current fps'''
     tof_counts = QtCore.pyqtSignal(int, np.ndarray) 
     '''Emit ToF counts'''
-    ui_image = QtCore.pyqtSignal(np.ndarray)        
-    '''Emit the image array'''
-    send_calibration = QtCore.pyqtSignal(np.ndarray)
+    ui_image = QtCore.pyqtSignal(np.ndarray)
     '''Emit the array containing calibration data'''
-    move_position = QtCore.pyqtSignal(float)        
-    '''Emit new delay stage position'''
-    request_position = QtCore.pyqtSignal()          
-    '''Request current delay stage position'''
 
     def __init__(self) -> None:
         QtCore.QThread.__init__(self)
         self.image_queue = None                     
         '''Queue for storing images'''
+        self.cal_queue = None
+        '''Queue for storing calibration array'''
+        self.delay_stage = None
+        '''Class for controlling delay stage, inherited from parent'''
         self.running     : bool = True              
         '''Used for killing thread'''
         self.waiting     : bool = True              
         '''Used to analyse images from camera, running when False'''
-        self.analogue    : bool = True              
-        '''Is camera outputting analogue images'''
         self.save_data   : bool = False             
         '''Should camera save the data'''
         self.stop_frames : bool = False             
@@ -81,6 +79,8 @@ class RunCameraThread(QtCore.QThread):
         '''Is the user running a calibration'''
         self.bins        : int = 4                  
         '''Number of camera bins'''
+        self.analogue    : int = 0              
+        '''Is camera outputting analogue images'''
         self.cml_number  : int = 0                  
         '''Current number of cumulative shots'''
         self.shot_number : int = 1                  
@@ -111,6 +111,8 @@ class RunCameraThread(QtCore.QThread):
         '''Analysed frames to save'''
         self.pos_data    : list = []                
         '''Position data to save'''
+        self.rows        : int = self.analogue + self.bins
+        '''Number of arrays the camera should be returning'''
 
         # Variables used to track progress of the delay stage
         self.delay_connected : bool = False         
@@ -149,7 +151,9 @@ class RunCameraThread(QtCore.QThread):
         self.pos_data     = []
         self.fps_timer    = time.time()
         self.save_timer   = time.time()
-        self.analogue     = parent._exp_type.currentIndex() != 0
+        self.image_queue  = parent.image_queue
+        self.cal_queue    = parent.cal_queue
+        self.analogue     = parent._exp_type.currentIndex()
         self.bins         = parent._bins.value()
         self.save_data    = parent._save_box.isChecked()
         self.calibration  = parent.run_calibration_
@@ -157,7 +161,9 @@ class RunCameraThread(QtCore.QThread):
         self.tof_max      = parent._max_x.value()
         self.tof_min      = parent._min_x.value()
         self.displayed    = parent._view.currentIndex()
+        self.image_index  = parent._window_view.currentIndex()
         self.tof_index    = parent._tof_view.currentIndex()
+        self.rows         = self.analogue + self.bins
 
         # If calibration active use calibration number of frames
         if self.calibration:
@@ -171,6 +177,7 @@ class RunCameraThread(QtCore.QThread):
         # Variables used to track progress of the delay stage
         self.delay_connected    = parent.dly_connected
         if self.delay_connected:
+            self.delay_stage    = parent.delay_stage
             self.delay_counts   = 0 
             self.delay_shots    = parent._dly_img.value()
             self.delay_t0       = parent._delay_t0.value()
@@ -189,7 +196,8 @@ class RunCameraThread(QtCore.QThread):
             filename = f'{filename[:-8]}_{fid:04d}.h5'
             fid+=1
         self.filename = filename
-        self.waiting  = False
+        print('Starting camera.')
+        self.acquisition_fps.emit('0','  0 fps')
 
     def reset_cumulative(self) -> None:
         '''
@@ -249,15 +257,15 @@ class RunCameraThread(QtCore.QThread):
             try: hf.create_dataset(f'{self.shot_number}',data=np.vstack(self.pos_data),compression='gzip')
             except ValueError: print('No data to save?')
 
-    def delay_stage_position(self, position) -> None:
+    def delay_stage_position(self) -> None:
         '''Update the delay position if required by checking how many shots have passed.'''
-        self.delay_position = position
+        self.delay_position = self.delay_stage.get_position()
         self.delay_counts += 1
         #If we have reached the max number of images for this position
         if self.delay_counts == self.delay_shots:
             self.progress.emit(f'Moved to: {self.position:.4f}, End at: {self.delay_end:.4f}')
             self.delay_position+=self.delay_step
-            self.move_position.emit(self.delay_position)
+            self.delay_stage.set_position(self.delay_position)
             self.delay_counts = 0
         #If we have passed the end point stop camera
         if (self.delay_start > self.delay_end) and (self.delay_position <= self.delay_end):
@@ -267,12 +275,10 @@ class RunCameraThread(QtCore.QThread):
         self.pos_data.append(self.delay_position)
 
     def run(self) -> None:       
-        print('Starting camera.')
-        self.acquisition_fps.emit('0','  0 fps')
-
-        # Continue checking the image queue until we kill the camera.
         while self.running == True:
-            if self.waiting: continue
+            if self.waiting:
+                QtCore.QThread.msleep(1)
+                continue
             # Update the fps count every second
             if time.time() - self.fps_timer > 1:
                 self.acquisition_fps.emit(f'{self.shot_number}',f'{self.fps:3d} fps')
@@ -302,7 +308,10 @@ class RunCameraThread(QtCore.QThread):
             self.fps+=1
 
             # Make sure PIMMS has passed back a data frame of the correct size
-            if images.shape[0] != (self.bins + self.analogue) : continue
+            if images.shape[0] != self.rows:
+                self.progress.emit(f'Image array size mismatch! Should be {self.rows} got {images.shape[0]}.')
+                QtCore.QThread.msleep(1)
+                continue
 
             # During calibration there is no need to output any data
             if self.calibration:
@@ -312,7 +321,8 @@ class RunCameraThread(QtCore.QThread):
                 continue
 
             # Check if the user is saving delay position data
-            if self.delay_connected: self.request_position.emit()
+            if self.delay_connected:
+                self.delay_stage_position()
                                     
             '''
             Grab TOF data, then get unique values and update plot.
@@ -375,23 +385,23 @@ class RunCameraThread(QtCore.QThread):
 
             self.ui_image.emit(image)
 
-        if self.save_data:
-            self.save_data_to_file()
-
-        if self.calibration:
-            self.send_calibration.emit(self.calibration_array)
-
-        self.finished.emit()
-        print('Camera stopping.')
-
     def stop_limit(self) -> None:
         '''Used to stop the thread internally'''
-        self.pause()
+        self.waiting = True
         self.limit.emit()
 
     def pause(self) -> None:
         '''Stop analysing images'''
         self.waiting = True
+
+        if self.save_data:
+            self.save_data_to_file()
+
+        if self.calibration:
+            # Put calibration array into the calibration queue
+            self.cal_queue.put_nowait(self.calibration_array)
+
+        print('Camera stopping.')
 
     def stop(self) -> None:
         '''Used to kill the thread'''

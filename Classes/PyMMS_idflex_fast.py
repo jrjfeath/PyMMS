@@ -3,7 +3,7 @@ import os
 import sys
 import numpy as np
 import time
-from PyMMS_TrimData import TrimData
+from Classes.PyMMS_trim_data import TrimData
 #Important notes about ctypes 
 #Pointers are made using: ptr = ctypes.c_void_p()
 #When you want to pass a pointer to a C function use ctypes.byref(ptr) in the function call
@@ -14,6 +14,7 @@ from PyMMS_TrimData import TrimData
 
 #Directory containing this file
 fd = os.path.dirname(__file__)
+fd = f'{os.path.dirname(fd)}//DLLs'
 #Directory containing dlls needed to run the camera
 if sys.platform == "win32": os.add_dll_directory(fd)
 pleora_sdk = r'C:\Program Files\Common Files\Pleora\eBUS SDK'
@@ -34,7 +35,7 @@ class idflexusb():
             self.pimms = ctypes.cdll.LoadLibrary(dll_path)
             self.message = f"Loaded PyMMS dll."
         except FileNotFoundError:
-            self.message =  f'Cannot find?: {dll_path}\n Cannot find?: {pleora_sdk}'
+            self.message =  f'Cannot find: {dll_path}\n Cannot find: {pleora_sdk}'
             self.error = 1
         
     def error_encountered(self, message = f"") -> None:
@@ -404,7 +405,6 @@ class pymms():
 
     def __init__(self, settings : dict) -> None:
         self.idflex = idflexusb()
-        if self.idflex.error != 0: return
         #Create operation modes, these could change in the future
         self.settings : dict = self.operation_modes(settings)
 
@@ -509,7 +509,7 @@ class pymms():
 
     def send_output_types(self,function=0,trigger=0,rows=5) -> None:
         # Set camera to take analogue picture along with exp bins
-        if function == 0:
+        if function == 1:
             self.writeread_str(self.settings['operation_hex']['Experimental w. Analogue Readout'])
         # Set camera to take experiment bins only
         else:
