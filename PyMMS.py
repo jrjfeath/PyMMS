@@ -299,6 +299,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._cal_remaining.setText(value[0])
         self._cal_progress.setValue(value[1])
 
+    def pass_main_for_calibration(self) -> None:
+        self.thread_control.start_acquisition_threads(self)
+
     def open_file_dialog(self,option : int) -> None:
         '''Open the window for finding files/directories'''
         if option == 0:
@@ -368,7 +371,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 else:
                     self.run_calibration_ = True
                     self._cal_run.setText("Stop")
-                    self._exp_type.setCurrentIndex(1)
+                    self._bins.setValue(4)
+                    self._trigger.setCurrentIndex(0)
+                    self._exp_type.setCurrentIndex(0)
                     self._exp_type.setEnabled(False)
                     self.thread_control.start_camera_calibration(self)
                     enable = False

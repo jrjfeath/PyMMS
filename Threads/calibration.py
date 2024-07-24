@@ -39,7 +39,7 @@ class CameraCalibrationThread(QtCore.QThread):
         self.pymms = parent.pymms
         '''Class used to communicate with the camera'''
 
-    def cls() -> None:
+    def cls(self) -> None:
         '''This function clears the console as it can causes memory issues when calibrating.'''
         os.system('cls' if os.name=='nt' else 'clear')
 
@@ -96,7 +96,9 @@ class CameraCalibrationThread(QtCore.QThread):
                     array = np.zeros((4,324,324), dtype=np.uint16) # Empty Calibration Array
                     while self.running:
                         # Wait for data to come through queue
-                        if self.queue.empty(): continue
+                        if self.queue.empty(): 
+                            QtCore.QThread.msleep(1)
+                            continue
                         # When data comes through queue get it and proceed
                         array = self.queue.get_nowait()
                         break
@@ -110,6 +112,7 @@ class CameraCalibrationThread(QtCore.QThread):
                         current_percent = percent_complete
                     step_counter+=1
                     self.cls()
+                    print('Done')
 
                 with open(self.filename, "a") as opf:
                     opf.write(f'# Trim Value: {v}\n')

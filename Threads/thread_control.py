@@ -70,7 +70,7 @@ class ThreadControl():
             self.generate_thread('Images', thread)
         if 'Acquisition' not in self.threads:
             # Generate shared queue objects for storing image and calibration data
-            parent.cal_queue = queue.Queue(maxsize=1)
+            parent.cal_queue = queue.Queue(maxsize=2)
             parent.image_queue = queue.Queue(maxsize=2)
             thread = RunCameraThread()
             thread.acquisition_fps.connect(parent.update_fps)
@@ -117,10 +117,10 @@ class ThreadControl():
         # Create the calibration thread
         thread = CameraCalibrationThread(parent)
         thread.progress.connect(parent.update_calibration_progress)
-        thread.take_images.connect(parent.ui_threads.acquisition_threads)
+        thread.take_images.connect(parent.pass_main_for_calibration)
         thread.voltage.connect(parent.update_cal_values)
         thread.finished.connect(lambda: parent.start_and_stop_camera('Calibration'))
-        self.start_thread('Calibration', thread)
+        self.generate_thread('Calibration', thread)
 
     def stop_camera_calibration(self) -> None:
         self.kill_thread('Calibration')

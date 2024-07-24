@@ -399,7 +399,8 @@ class RunCameraThread(QtCore.QThread):
 
         if self.calibration:
             # Put calibration array into the calibration queue
-            self.cal_queue.put_nowait(self.calibration_array)
+            try: self.cal_queue.put_nowait(self.calibration_array)
+            except queue.Full: pass
 
         print('Camera stopping.')
 
