@@ -128,9 +128,9 @@ class ThreadControl():
     def start_delay_stage(self, parent) -> None:
         '''Starts the thread that updates the delay stage position'''
         if 'Delay' not in self.threads:
-            thread = GetDelayPositionThread()
+            thread = GetDelayPositionThread(parent)
             thread.progressChanged.connect(parent.update_pos)
-            self.start_thread('Delay', thread)
+            self.generate_thread('Delay', thread)
 
     def stop_delay_stage(self) -> None:
         '''Stops the thread that updates the delay stage position'''
@@ -142,7 +142,12 @@ class ThreadControl():
             thread = MovePositionThread(parent)
             thread.progressChanged.connect(parent.update_pos)
             thread.message.connect(parent.update_console)
-            self.start_thread('Move', thread)
+            thread.finished.connect(self.delay_stage_stopped)
+            self.generate_thread('Move', thread)
+
+    def delay_stage_stopped(self) -> None:
+        '''Stops the thread that moves the delay stage position'''
+        self.kill_thread('Move')
 
     def kill_threads(self) -> None:
         '''Kill all threads before closing the application'''

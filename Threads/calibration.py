@@ -67,8 +67,9 @@ class CameraCalibrationThread(QtCore.QThread):
     def run(self) -> None:
         # Calculate the number of steps the process needs to run
         number_of_runs = int(((self.end - self.initial) / self.inc) * 81)
-        # Scan values 14 through 4, 15 used to find mean, 0,1,2,3 are too intense to use
-        for v in range(self.trim_value, 3, -1):
+        # Scan values 14 through 0, 15 used to find mean
+        for v in range(self.trim_value, 1, -1):
+            if v in [0,2,8,10]: continue # 0,2,8,10 are not used
             # Setup the counters for determining how far along the calibration is
             step_counter = 0
             current_percent = 0
@@ -81,8 +82,15 @@ class CameraCalibrationThread(QtCore.QThread):
                 if self.static and self.trim_value != v: break
                 self.current = vthp
                 self.create_filename()
+                # Wait 1 second before sending data to ensure scan is finished
+                QtCore.QThread.msleep(1000)
                 # Before calibration set VthP and VthN
                 self.pymms.calibrate_pimms(update=True,vThN=self.vThN,vThP=vthp)
+                # Check if VThN and VThP successfully uploaded
+                if self.pymms.idflex.error != 0:
+                    print('Camera communication error')
+                    self.running = False
+                    break
                 # Update the current voltage and trim labels
                 self.voltage.emit(f'{vthp}', f'{v}')
                 calibration = np.zeros((4,324,324), dtype=np.uint16) # Calibration Array
@@ -91,6 +99,11 @@ class CameraCalibrationThread(QtCore.QThread):
                     if not self.running: break
                     self.pymms.calibrate_pimms(value=v,iteration=i)
                     QtCore.QThread.msleep(10)
+                    # Check if trim successfully uploaded
+                    if self.pymms.idflex.error != 0:
+                        print('Camera communication error')
+                        self.running = False
+                        break
                     if self.running: self.take_images.emit()
                     # Wait for acquisition to finish
                     array = np.zeros((4,324,324), dtype=np.uint16) # Empty Calibration Array
@@ -114,6 +127,11 @@ class CameraCalibrationThread(QtCore.QThread):
                     self.cls()
                     print('Done')
 
+                # Don't save file if calibration fails
+                if not self.running and (self.pymms.idflex.error != 0):
+                    self.finished.emit()
+                    break
+
                 with open(self.filename, "a") as opf:
                     opf.write(f'# Trim Value: {v}\n')
                     np.savetxt(opf, np.sum(calibration,axis=0,dtype=np.int16), delimiter=',', fmt='%i')
@@ -121,7 +139,10 @@ class CameraCalibrationThread(QtCore.QThread):
                 del calibration
             
             # Emit signal to restart counter
-            self.progress.emit(['00:00:00', 0])
+            if self.pymms.idflex.error == 0:
+                self.progress.emit(['00:00:00', 0])
+            else:
+                self.progress.emit(['ERROR', 0])
 
         # After all threshold values have finished let the UI know the process is done
         if self.running: self.finished.emit()

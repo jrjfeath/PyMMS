@@ -16,9 +16,9 @@ class GetDelayPositionThread(QtCore.QThread):
     def run(self) -> None:
         while self.running == True:
             value = self.delay_stage.get_position()
-            try: self.progressChanged.emit(float(value))
+            try: self.progressChanged.emit(round(float(value),4))
             except: print('Cannot read position data.')
-            QtCore.QThread.msleep(10)
+            QtCore.QThread.msleep(100)
         self.finished.emit()
 
 class MovePositionThread(QtCore.QThread):
@@ -40,14 +40,14 @@ class MovePositionThread(QtCore.QThread):
         while self.running == True:
             self.progressChanged.emit(np.random.randint(0,100))
             value = self.delay_stage.get_position()
-            try: float(value)
+            try: value = float(value)
             except: print('Cannot read position data.')
             self.message.emit(f'Moving to start position: {round(self.start_pos,4)}, Current position: {round(value,4)}')
             # Check if position is within bounds
             if (self.start_pos-0.01 < float(value) < self.start_pos+0.01):
                 break
             else:
-                QtCore.QThread.msleep(10)
+                QtCore.QThread.msleep(100)
         self.progressChanged.emit(0)
-        self.message.emit(f'Finished moving to start position')
+        self.message.emit(f'Finished moving to start position: {self.start_pos}')
         self.finished.emit()

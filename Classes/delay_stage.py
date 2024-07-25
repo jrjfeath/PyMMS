@@ -19,13 +19,14 @@ class NewportDelayStage():
     Requires pyserial library.
     '''
 
-    def __init__(self,directory,hardware_id='PID=104D:3009',filename='Newport.DLS.CommandInterfaceDLS'):
-        if os.path.isfile(filename):
+    def __init__(self,directory,hardware_id='PID=104D:3009',filename='Newport.DLS.CommandInterfaceDLS.dll'):
+        filepath = os.path.join(directory,filename)
+        if os.path.isfile(filepath):
             self.hardware_id = hardware_id
             import clr #pythonnet
             #Load in newport c++ library
             sys.path.append(directory)
-            clr.AddReference(filename)
+            clr.AddReference(filepath[:-4])
             from CommandInterfaceDLS import DLS
             self.myDLS = DLS()
             self.dls_files_present = True

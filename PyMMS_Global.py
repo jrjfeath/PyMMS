@@ -1,6 +1,6 @@
 import os
 import yaml
-from PyMMS_Functions import pymms
+from Classes.PyMMS_idflex import pymms
 
 #Directory containing this file
 fd = os.path.dirname(__file__)

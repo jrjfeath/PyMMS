@@ -93,6 +93,7 @@ class pymms():
 
     def __init__(self, settings) -> None:
         self.idflex = idflexusb()
+        self.trim = TrimData()
         #Create operation modes, these could change in the future
         self.settings : dict = self.operation_modes(settings)
 
@@ -252,11 +253,11 @@ class pymms():
 
         # After these commands are sent we now send the trim file to PIMMS
         # Generate an empty trim array
-        trim = TrimData.write_trim(value=0)
+        trim = self.trim.write_trim(value=0)
         if (os.path.isfile(trim_file) & trim_file.endswith('.bin')):
-            trim = TrimData.read_trim(trim_file)
+            trim = self.trim.read_trim(trim_file)
         if (os.path.isfile(trim_file) & trim_file.endswith('.csv')):
-            trim = TrimData.write_trim(filename=trim_file)
+            trim = self.trim.write_trim(filename=trim_file)
         
         self.send_trim_to_pimms(trim)
         self.send_output_types(function,trigger)
@@ -275,9 +276,11 @@ class pymms():
             self.settings['dac_settings']['vThN'] = vThN
             self.settings['dac_settings']['vThP'] = vThP
             self.dac_settings()
-            self.send_output_types(1,0,4)
+            if self.idflex.error != 0: return
+            self.send_output_types(0,0,4)
         else:
             # Write trim data
-            trim = TrimData.write_trim(value=value,iteration=iteration,calibration=True)
+            trim = self.trim.write_trim(value=value,iteration=iteration,calibration=True)
             self.send_trim_to_pimms(trim)
+            if self.idflex.error != 0: return
             self.writeread_str(['#À@0005\r'])

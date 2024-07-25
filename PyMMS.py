@@ -145,7 +145,7 @@ class MainWindow(QtWidgets.QMainWindow):
         uic.loadUi(uifp,self)
 
         # Call the class for your respective delay stage
-        self.delay_stage = NewportDelayStage(fd)
+        self.delay_stage = NewportDelayStage(os.path.join(fd,'DLLs'))
         # Generate thread class
         self.thread_control = ThreadControl()
         self.thread_control.spawn_acquisition_threads(self)
@@ -441,7 +441,6 @@ class MainWindow(QtWidgets.QMainWindow):
         if close == QtWidgets.QMessageBox.StandardButton.Yes.value:
             if self.dly_connected:
                 self.delay_stage.disconnect_stage()
-                pass
             if self.pymms != None: 
                 self.thread_control.kill_threads()
             if self.connected_: 
