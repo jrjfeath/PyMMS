@@ -195,6 +195,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._vthn.valueChanged.connect(self.update_dafaults)
         self._bins.valueChanged.connect(self.update_dafaults)
         self._window_view.currentIndexChanged.connect(self.change_image)
+        self._tof_view.currentIndexChanged.connect(self.change_tof)
         self._view.currentIndexChanged.connect(self.individual_or_cumulative)
         self._reset_cumulative.clicked.connect(self.reset_cumulative)
 
@@ -268,6 +269,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def change_image(self) -> None:
         '''Change which image is being displayed.'''
         self.thread_control.threads['Acquisition'].image_index = self._window_view.currentIndex()
+
+    def change_tof(self) -> None:
+        '''Change which image is being displayed.'''
+        self.thread_control.threads['Acquisition'].tof_index = self._tof_view.currentIndex()
 
     def individual_or_cumulative(self) -> None:
         '''Does the user want to view the individual or summed images?'''
