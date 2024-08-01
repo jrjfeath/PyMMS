@@ -20,6 +20,8 @@ class CameraCalibrationThread(QtCore.QThread):
         '''Is the calibration currently running?'''
         self.static             : bool = parent._cal_static.isChecked()
         '''Is the trim value set to a static value?'''
+        self.file_exists        : bool = False
+        '''Check if the trim file already exists, if it does skip.'''
         self.trim_value         : int = parent._cal_trim.value()
         '''What trim value is set?'''
         self.initial            : int = parent._cal_vthp.value()
@@ -54,13 +56,9 @@ class CameraCalibrationThread(QtCore.QThread):
             self.directory = str(pathlib.Path.home() / 'Documents')
 
         #Create a filename for saving data
-        filename = f'{os.path.join(self.directory)}/T{trim_value}_P{self.current}_N{self.vThN}'
-        filename += '_0000.csv'
-        #Check if file already exists so you dont overwrite data
-        fid = 1
-        while os.path.exists(filename):
-            filename = f'{filename[:-9]}_{fid:04d}.csv'
-            fid+=1
+        filename = f'{os.path.join(self.directory)}/T{trim_value}_P{self.current}_N{self.vThN}.csv'
+        if os.path.exists(filename): self.file_exists = True
+        else: self.file_exists = False
         self.filename = filename
     
     def run(self) -> None:
@@ -81,6 +79,8 @@ class CameraCalibrationThread(QtCore.QThread):
                 if self.static and self.trim_value != v: break
                 self.current = vthp
                 self.create_filename(v)
+                # Check if the file exists, if it does go to the next loop
+                if self.file_exists: continue
                 # Wait 1 second before sending data to ensure scan is finished
                 QtCore.QThread.msleep(1000)
                 # Before calibration set VthP and VthN
@@ -128,9 +128,8 @@ class CameraCalibrationThread(QtCore.QThread):
                     QtCore.QThread.msleep(1000)
                     self.cls()
 
-                # Don't save file if calibration fails
-                if not self.running and (self.pymms.idflex.error != 0):
-                    self.finished.emit()
+                # Don't save file if calibration fails or is stopped by user
+                if not self.running:
                     break
 
                 with open(self.filename, "a") as opf:

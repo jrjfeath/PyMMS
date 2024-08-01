@@ -16,6 +16,7 @@ import warnings
 import yaml
 from PyQt6 import uic, QtWidgets, QtCore, QtGui
 from Classes.delay_stage import NewportDelayStage
+from Classes.find_calibration import DetermineFit
 from Threads.thread_control import ThreadControl
 #Supress numpy divide and cast warnings
 warnings.simplefilter('ignore', RuntimeWarning)
@@ -149,6 +150,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # Generate thread class
         self.thread_control = ThreadControl()
         self.thread_control.spawn_acquisition_threads(self)
+        # Call the class for determining the calibration
+        self.determine_fit = DetermineFit()
 
         #Add default save locations
         self._file_dir_2.setText(str(pathlib.Path.home() / 'Documents'))
@@ -201,6 +204,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._button.clicked.connect(lambda: self.start_and_stop_camera('Acquisition'))
         self._cal_run.clicked.connect(lambda: self.start_and_stop_camera('Calibration'))
+        self._rising_edge.clicked.connect(self.find_rising_edge)
+        self._find_calibration.clicked.connect(self.determine_cal_fit)
 
         #Update the plots when they are clicked on
         self._nofs.valueChanged.connect(self.reset_nofs)
@@ -306,6 +311,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def pass_main_for_calibration(self) -> None:
         self.thread_control.start_acquisition_threads(self)
+
+    def find_rising_edge(self) -> None:
+        '''Determine the rising edge for the trim 15.'''
+        directory = self._file_dir_2.text()
+        self.determine_fit.find_gaussian_fit(directory)
+
+    def determine_cal_fit(self) -> None:
+        directory = self._file_dir_2.text()
+        mean = self._mean_edge.value()
+        self.determine_fit.determine_calibration(directory, mean)
 
     def open_file_dialog(self,option : int) -> None:
         '''Open the window for finding files/directories'''
