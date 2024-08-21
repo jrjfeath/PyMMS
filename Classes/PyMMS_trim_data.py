@@ -25,12 +25,12 @@ class TrimData():
             arr = np.loadtxt(filename,dtype=np.uint8,delimiter=',')
         else:
             arr = np.full((rows,cols),value, dtype='>i')
-            # When calibrating only set values for every 9th pixel and disable all other pixels
+            # When calibrating only set values for every 4th pixel and disable all other pixels
             # See Jason Lee's PhD thesis page 94 onwards on power droop
             if calibration:
-                row, col = iteration // 9, iteration % 9
+                row, col = iteration // 3, iteration % 3
                 pixels_enabled = np.ones((rows,cols), dtype=int)
-                pixels_enabled[row::9, col::9] = 0
+                pixels_enabled[row::3, col::3] = 0
 
         # Create the trim array, each index represents a byte, every 5 bits
         # corresponds to a pixel.

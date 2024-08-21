@@ -17,7 +17,7 @@ class CameraCommandsThread(QtCore.QThread):
         '''What is the output type? Experiment And/No Analogue'''
         self.trigger   : int = parent._trigger.currentIndex()
         '''What is the trigger type?'''
-        self.rows      : int = parent._bins.value() + 1 - parent._exp_type.currentIndex()
+        self.rows      : int = parent._bins.value() + parent._exp_type.currentIndex()
         '''How many rows are being output?'''
         self.trim_file : str = parent._trim_dir.text()
         '''Is there a trim file present?'''

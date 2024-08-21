@@ -45,7 +45,7 @@ class DetermineFit():
         for _, opf in enumerate(self.files):
             print(f'Reading File: {opf}')
             name = opf.split('_')
-            v_thresh.append(int(name[0][1:]))
+            v_thresh.append(int(name[1][1:]))
             data = np.loadtxt(f'{self.directory}/{opf}', delimiter=',', dtype=np.uint8, converters=float, comments='#')
             initial_threshold_values.append(data)
         v_thresh = np.array(v_thresh)
@@ -84,7 +84,7 @@ class DetermineFit():
         axs[1].plot([self.mean - self.stddev, self.mean + self.stddev], [self.amplitude * 0.4, self.amplitude * 0.4], 'r:')
         axs[1].legend()
         axs[1].set(xlabel='Voltage Threshold (mV)', ylabel='Pixel Population', title='Mean Rising Edge Fit')
-        plt.savefig(f'{self.directory}/15T_Gaussian_Fit.png')
+        plt.savefig(f'{self.directory}/T15_Gaussian_Fit.png')
 
     def determine_calibration(self, directory, mean) -> None:
         '''Iterates through calibration files, ignores trim values of 15'''

@@ -33,8 +33,11 @@ class ImageAcquisitionThread(QtCore.QThread):
                 QtCore.QThread.msleep(1)
                 continue
             image = self.pymms.idflex.readImage(size = self.size)
-            try: self.image_queue.put_nowait(image)
-            except queue.Full: pass
+            # Check if image queue is full, if it is wait 1ms before taking another image
+            try: 
+                self.image_queue.put_nowait(image)
+            except queue.Full: 
+                QtCore.QThread.msleep(1)
 
     def pause(self) -> None:
         '''When Calibrating we do not want to be constantly creating and destroying threads.'''
@@ -299,7 +302,10 @@ class RunCameraThread(QtCore.QThread):
                 self.stop_limit()
 
             # Wait for image to come through queue
-            if self.image_queue.empty(): continue
+            if self.image_queue.empty():
+                # Wait 1ms between each check to prevent computer from locking up
+                QtCore.QThread.msleep(1)
+                continue
             images = self.image_queue.get_nowait()
 
             # Update various counts
