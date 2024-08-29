@@ -108,7 +108,7 @@ class idflexusb():
             ]
 
         portConfig = PortConfig(
-            2,                                        # SerialPort
+            2,                                        # SerialPort, PvDeviceSerialBulk0
             ctypes.c_char_p(b"One"),                  # StopBits
             ctypes.c_char_p(b"None"),                 # Parity
             False,                                    # LoopBack
@@ -148,7 +148,7 @@ class idflexusb():
             self.error_encountered(f'Cannot connect to serial port, check USB connection!')
             return
 
-        portConfig.SerialPort = 3
+        portConfig.SerialPort = 3 #PvDeviceSerialBulk1
         portConfig.Mode = ctypes.c_char_p(b"USRT")
         useTermChar = False
         termChar = 0x0  # Termination character
@@ -379,9 +379,7 @@ class idflexusb():
 
         #Get the images as a numpy array and then reshape
         img = np.ctypeslib.as_array(array)
-        img = img.reshape(size,324,324)
-
-        return img
+        return img.reshape(size,324,324)
 
     def StopAcquisition(self) -> None:
         '''
