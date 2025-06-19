@@ -12,8 +12,11 @@ class DetermineFit():
         '''Determine a gaussian fit for the data of trim 15.'''
         self.row = row
         self.column = column
-        files = [x for x in os.listdir(directory) if 'T15_' in x]
+        files = [x for x in os.listdir(directory) if 'T15_' in x and x.endswith(".csv")]
         if files != self.files:
+            # Sort files by the VThP value
+            file_sort = [int(x.split('_')[1][1:]) for x in files]
+            file_sort, files = zip(*sorted(zip(file_sort, files)))
             self.files = files
             self.directory = directory
             self.static_trim()
@@ -46,7 +49,12 @@ class DetermineFit():
             print(f'Reading File: {opf}')
             name = opf.split('_')
             v_thresh.append(int(name[1][1:]))
-            data = np.loadtxt(f'{self.directory}/{opf}', delimiter=',', dtype=np.uint8, converters=float, comments='#')
+            # PIMMS should return 0-255 but fast pimms doesnt...
+            try: data = np.loadtxt(f'{self.directory}/{opf}', delimiter=',', dtype=np.uint8, converters=float, comments='#')
+            except ValueError:
+                data = np.loadtxt(f'{self.directory}/{opf}', delimiter=',', dtype=np.uint16, converters=float, comments='#')
+                out_of_bounds = np.argwhere(data > 255)[0]
+                data[out_of_bounds] = 255
             initial_threshold_values.append(data)
         v_thresh = np.array(v_thresh)
         initial_threshold_values = np.array(initial_threshold_values)
@@ -126,3 +134,7 @@ class DetermineFit():
                         lowest = difference
                         trim_values[a][b] = trim
         np.savetxt(f"{directory}/Calibration.csv", trim_values, delimiter=",", fmt='%d')
+
+if __name__ == "__main__":
+    dt = DetermineFit()
+    dt.find_gaussian_fit("/home/zero/Downloads/Josh_plz_help",0,0)
