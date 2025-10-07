@@ -217,7 +217,7 @@ class RunCameraThread(QtCore.QThread):
         for id, reg in enumerate(mem_regs):
             try: Y,X = np.nonzero(reg)
             except ValueError:
-                print(len(reg))
+                print(f'Error extracting data from memory registry: {id}')
                 return tof_data
             ToF = np.nan_to_num(reg[Y,X]) # Replace any nan values with 0
             ids = np.full((ToF.shape),id)

@@ -124,6 +124,8 @@ class CameraCalibrationThread(QtCore.QThread):
                         self.progress.emit([time_converted, percent_complete])
                         current_percent = percent_complete
                     print(f'Completed step {step_counter} of {number_of_runs}')
+                    if step_counter > number_of_runs:
+                        print(f'How have you exceeded the set number of runs? Trim Value : {v}, Voltage : {vthp}')
                     step_counter+=1
                     # Wait 1 second before sending data to ensure scan is finished
                     QtCore.QThread.msleep(2000)
