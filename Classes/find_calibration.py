@@ -8,6 +8,15 @@ class DetermineFit():
         self.directory = ''
         self.files = []
 
+    def load_data_from_pimms(self, filepath) -> np.ndarray:
+        # PIMMS should return 0-255 but fast pimms doesnt...
+        try: data = np.loadtxt(filepath, delimiter=',', dtype=float, comments='#').astype(np.uint8)
+        except ValueError:
+            data = np.loadtxt(filepath, delimiter=',', dtype=float, comments='#').astype(np.uint16)
+            out_of_bounds = np.argwhere(data > 255)[0]
+            data[out_of_bounds] = 255
+        return data
+
     def find_gaussian_fit(self, directory, row=0, column=0) -> None:
         '''Determine a gaussian fit for the data of trim 15.'''
         self.row = row
@@ -49,12 +58,8 @@ class DetermineFit():
             print(f'Reading File: {opf}')
             name = opf.split('_')
             v_thresh.append(int(name[1][1:]))
-            # PIMMS should return 0-255 but fast pimms doesnt...
-            try: data = np.loadtxt(f'{self.directory}/{opf}', delimiter=',', dtype=np.uint8, converters=float, comments='#')
-            except ValueError:
-                data = np.loadtxt(f'{self.directory}/{opf}', delimiter=',', dtype=np.uint16, converters=float, comments='#')
-                out_of_bounds = np.argwhere(data > 255)[0]
-                data[out_of_bounds] = 255
+            filepath = f'{self.directory}/{opf}'
+            data = self.load_data_from_pimms(filepath)
             initial_threshold_values.append(data)
         v_thresh = np.array(v_thresh)
         initial_threshold_values = np.array(initial_threshold_values)
@@ -94,16 +99,19 @@ class DetermineFit():
         axs[1].set(xlabel='Voltage Threshold (mV)', ylabel='Pixel Population', title='Mean Rising Edge Fit')
         plt.savefig(f'{self.directory}/T15_Gaussian_Fit.png')
 
-    def determine_calibration(self, directory, mean) -> None:
-        '''Iterates through calibration files, ignores trim values of 15'''
+    def determine_calibration(self, directory, mean=0) -> None:
+        '''Iterates through calibration files'''
         files = [x for x in os.listdir(directory) if x.endswith('.csv')]
+        if mean == 0: mean = self.mean
 
+        differences = {x : np.zeros((324,324)) for x in range (1,16)}
         pixels = {}
         for a in range(324):
             for b in range(324):
-                pixels[f'{a},{b}'] = {x : 0 for x in range(0,15)}
+                pixels[f'{a},{b}'] = {x : 0.0 for x in range(1,16)}
 
-        for trim in range(0,15):
+        for trim in range(1,16):
+            print(f'Trim : {trim}')
             trim_files = [x for x in files if f'T{trim}_' in x]
             if len(trim_files) == 0: continue
             data_stacked = []
@@ -113,7 +121,7 @@ class DetermineFit():
                 vthp = file.split('_')[1][1:]
                 vthps.append(int(vthp))
                 filepath = f'{directory}/{file}'
-                data = np.loadtxt(filepath, delimiter=',', dtype=np.uint8, converters=float, comments='#')
+                data = self.load_data_from_pimms(filepath)
                 data_stacked.append(data)
             data_stacked = np.array(data_stacked)
             for a in range(324):
@@ -128,13 +136,17 @@ class DetermineFit():
         for a in range(324):
             for b in range(324):
                 lowest = 99
-                for trim in range(0,15):
+                for trim in range(1,16):
                     difference = abs(mean - pixels[f'{a},{b}'][trim])
+                    differences[trim][a,b] = difference
                     if difference < lowest:
                         lowest = difference
                         trim_values[a][b] = trim
         np.savetxt(f"{directory}/Calibration.csv", trim_values, delimiter=",", fmt='%d')
+        for trim in range(1,16):
+            np.savetxt(f"{directory}/Differences_T{trim}.csv", differences[trim], delimiter=",", fmt='%d')
 
 if __name__ == "__main__":
     dt = DetermineFit()
-    dt.find_gaussian_fit("/home/zero/Downloads/Josh_plz_help",0,0)
+    dt.find_gaussian_fit(r"C:\Users\jrjfeath\Downloads\fast_PImMS_calibration\fast_PImMS_calibration\20261117",0,0)
+    dt.determine_calibration(r"C:\Users\jrjfeath\Downloads\fast_PImMS_calibration\fast_PImMS_calibration\20261117")
