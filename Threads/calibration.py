@@ -66,7 +66,7 @@ class CameraCalibrationThread(QtCore.QThread):
         number_of_runs = int((((self.end - self.initial) / self.inc) + 1) * 9)
         # Scan values 14 through 0, 15 used to find mean
         for v in range(self.trim_value, 0, -1):
-            if v in [0,2,8,10]: continue # 0,2,8,10 are not used
+            if v == 0: continue 
             # Setup the counters for determining how far along the calibration is
             step_counter = 0
             current_percent = 0
